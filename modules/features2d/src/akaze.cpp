@@ -168,7 +168,7 @@ namespace cv
                               bool useProvidedKeypoints)
         {
             Mat img = image.getMat();
-            if (img.type() != CV_8UC1)
+            if (img.type() != CV_8UC1 && img.type() != CV_16UC1)
                 cvtColor(image, img, COLOR_BGR2GRAY);
 
             Mat img1_32;
