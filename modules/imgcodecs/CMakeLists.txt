@@ -86,6 +86,11 @@ if(IOS)
   list(APPEND IMGCODECS_LIBRARIES "-framework Accelerate" "-framework CoreGraphics" "-framework CoreImage" "-framework QuartzCore" "-framework AssetsLibrary")
 endif()
 
+if(APPLE AND NOT IOS)
+  list(APPEND imgcodecs_srcs ${CMAKE_CURRENT_LIST_DIR}/src/osx_conversions.mm)
+  list(APPEND IMGCODECS_LIBRARIES "-framework Accelerate" "-framework CoreGraphics" "-framework CoreImage" "-framework QuartzCore" "-framework AppKit")
+endif()
+
 if(UNIX)
   #these variables are set by CHECK_MODULE macro
   foreach(P ${IMGCODECS_INCLUDE_DIRS})
