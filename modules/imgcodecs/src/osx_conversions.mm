@@ -46,95 +46,32 @@
 #import <ImageIO/ImageIO.h>
 #include "opencv2/core.hpp"
 #include "precomp.hpp"
+#include "opencv2/imgproc.hpp"
+#include "opencv2/imgcodecs.hpp"
+
 
 NSImage* MatToNSImage(const cv::Mat& image);
 void NSImageToMat(const NSImage* image, cv::Mat& m, bool alphaExist);
 
 NSImage* MatToNSImage(const cv::Mat& image) {
-    int bytespp = image.elemSize1();
-    NSData *data = [NSData dataWithBytes:image.data
-                                  length:image.elemSize()*image.total()];
-
-    CGColorSpaceRef colorSpace;
-
-    if (image.elemSize() == bytespp) {
-        colorSpace = CGColorSpaceCreateDeviceGray();
-    } else {
-        colorSpace = CGColorSpaceCreateDeviceRGB();
-    }
-
-    CGDataProviderRef provider =
-            CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-
-    // Preserve alpha transparency, if exists
-    bool alpha = image.channels() == 4;
-    CGBitmapInfo bitmapInfo = (alpha ? kCGImageAlphaLast : kCGImageAlphaNone) | kCGBitmapByteOrderDefault;
-
-    // Creating CGImage from cv::Mat
-    CGImageRef imageRef = CGImageCreate(image.cols,
-                                        image.rows,
-                                        bytespp * 8,
-                                        bytespp * 8 * image.elemSize(),
-                                        image.step.p[0],
-                                        colorSpace,
-                                        bitmapInfo,
-                                        provider,
-                                        NULL,
-                                        false,
-                                        kCGRenderingIntentDefault
-                                        );
-
-
-    // Getting NSImage from CGImage
-    NSImage *finalImage = [[NSImage alloc] initWithCGImage:imageRef size: NSZeroSize];
-    CGImageRelease(imageRef);
-    CGDataProviderRelease(provider);
-    CGColorSpaceRelease(colorSpace);
-
+    NSImage *finalImage;
+    std::vector<unsigned char> buf;
+    cv::imencode(".tiff", image, buf);
+    finalImage = [NSImage initWithData: [NSData dataWithBytes: buf.data()
+                                                length: buf.size()]];
     return finalImage;
 }
 
 void NSImageToMat(const NSImage* image, cv::Mat& m, bool alphaExist) {
-    CGImageRef imageRef = [image CGImageForProposedRect: NULL context: NULL hints: NULL];
-    size_t bpp = CGImageGetBitsPerComponent(imageRef);
-    int components = 0;
-    CGColorSpaceRef colorSpace = CGImageGetColorSpace(imageRef);
-    CGFloat cols = image.size.width, rows = image.size.height;
-    CGContextRef contextRef;
-    CGBitmapInfo bitmapInfo = kCGImageAlphaPremultipliedLast;
-    if (CGColorSpaceGetModel(colorSpace) == 0) {
-        components = 1;
-        if(bpp == 8) {
-            m.create(rows, cols, CV_8UC1); // 8 bits per component, 1 channel
-        } else if (bpp == 16) {
-            m.create(rows, cols, CV_16UC1); // 16 bits per component, 1 channel
-        } else {
-            [NSException raise: @"OpenCVException"
-                         format: @"Only 16 and 8 bit-per-pixel images are supported (bpp=%d).",
-                         bpp];
-        }
-        bitmapInfo = kCGImageAlphaNone;
-        if (!alphaExist)
-            bitmapInfo = kCGImageAlphaNone;
-    } else {
-        components = 4;
-        if(bpp == 8) {
-            m.create(rows, cols, CV_8UC4); // 8 bits per component, 4 channels
-        } else if (bpp == 16) {
-            m.create(rows, cols, CV_16UC4); // 16 bits per component, 4 channels
-        } else {
-            [NSException raise: @"OpenCVException"
-                         format: @"Only 16 and 8 bit-per-pixel images are supported (bpp=%d).",
-                         bpp];
-        }
-        if (!alphaExist)
-            components--;
-            bitmapInfo = kCGImageAlphaNoneSkipLast |
-                                kCGBitmapByteOrderDefault;
+    NSData* imgData = [image TIFFRepresentation];
+    cv::Mat buffer;
+    m = cv::imdecode(cv::Mat(1,
+                             [imgData length],
+                             CV_8UC1,
+                             (void *)[imgData bytes]),
+                     CV_LOAD_IMAGE_UNCHANGED);
+    if(m.data == NULL) {
+        [NSException raise: @"OpenCVException"
+                     format: @"Unable to read image."];
     }
-    // NSLog(@"cols:%d, rows:%d, planes:%d, bpp:%d", m.cols, m.rows, components, bpp);
-    contextRef = CGBitmapContextCreate(m.data, cols, rows, bpp,
-                                       m.step[0], colorSpace, bitmapInfo);
-    CGContextDrawImage(contextRef, CGRectMake(0, 0, cols, rows), imageRef);
-    CGContextRelease(contextRef);
 }
