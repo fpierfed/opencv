@@ -77,6 +77,22 @@ if(IOS OR APPLE)
     ios_include_3party_libs(libjpeg)
   endif()
 
+  if(WITH_TIFF)
+    ios_include_3party_libs(libtiff)
+  endif()
+
+  if(WITH_JASPER)
+    ios_include_3party_libs(libjasper)
+  endif()
+
+  if(WITH_WEBP)
+    ios_include_3party_libs(libwebp)
+  endif()
+
+  if(WITH_OPENEXR)
+    ios_include_3party_libs(IlmImf)
+  endif()
+
   add_custom_command(TARGET ${the_module} POST_BUILD
     COMMAND /usr/bin/libtool -static -o ${CMAKE_CURRENT_BINARY_DIR}/${the_module}_fat.a $<TARGET_LINKER_FILE:${the_module}> ${merge_libs}
     COMMAND mv ${CMAKE_CURRENT_BINARY_DIR}/${the_module}_fat.a $<TARGET_LINKER_FILE:${the_module}>
