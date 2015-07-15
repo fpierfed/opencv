@@ -24,7 +24,7 @@ endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/tif_config.h.cmakein"
                "${CMAKE_CURRENT_BINARY_DIR}/tif_config.h" @ONLY)
 
-ocv_include_directories("${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIRS})
+ocv_include_directories("${CMAKE_CURRENT_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}" ${ZLIB_INCLUDE_DIRS} "${CMAKE_CURRENT_SOURCE_DIR}/../libjpeg" "${JPEG_INCLUDE_DIR}")
 
 set(lib_srcs
     tif_aux.c

@@ -1,6 +1,10 @@
 /* libtiff/tif_config.h.  Generated from tif_config.h.in by configure.  */
 /* libtiff/tif_config.h.in.  Generated from configure.ac by autoheader.  */
 
+#include <stdbool.h>
+#define boolean bool
+#define HAVE_BOOLEAN
+
 /* Support CCITT Group 3 & 4 algorithms */
 #define CCITT_SUPPORT 1
 
@@ -66,7 +70,7 @@
 /* #undef JPEG_DUAL_MODE_8_12 */
 
 /* Support JPEG compression (requires IJG JPEG library) */
-#undef JPEG_SUPPORT
+#define JPEG_SUPPORT 1
 
 /* 12bit libjpeg primary include file with path */
 /* #undef LIBJPEG_12_PATH */
@@ -87,7 +91,7 @@
 #define NEXT_SUPPORT 1
 
 /* Support Old JPEG compresson (read-only) */
-#undef OJPEG_SUPPORT
+#define OJPEG_SUPPORT 1
 
 /* Support Macintosh PackBits algorithm */
 #define PACKBITS_SUPPORT 1
