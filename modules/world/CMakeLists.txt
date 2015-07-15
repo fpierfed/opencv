@@ -93,6 +93,22 @@ if(IOS OR APPLE)
     ios_include_3party_libs(IlmImf)
   endif()
 
+  if(WITH_CUDA)
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcublas_device.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcublas_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcudadevrt.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcudart_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcufft_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcufftw_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libculibos.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcurand_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcusolver_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libcusparse_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libnppc_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libnppi_static.a")
+    list(APPEND merge_libs "/usr/local/cuda/lib/libnpps_static.a")
+  endif()
+
   add_custom_command(TARGET ${the_module} POST_BUILD
     COMMAND /usr/bin/libtool -static -o ${CMAKE_CURRENT_BINARY_DIR}/${the_module}_fat.a $<TARGET_LINKER_FILE:${the_module}> ${merge_libs}
     COMMAND mv ${CMAKE_CURRENT_BINARY_DIR}/${the_module}_fat.a $<TARGET_LINKER_FILE:${the_module}>
