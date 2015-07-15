@@ -53,6 +53,7 @@ def build_opencv(srcroot, buildroot, target, arch):
                  '-DBUILD_opencv_apps=OFF ' +
                  '-DBUILD_opencv_world=ON ' +
                  '-DBUILD_opencv_matlab=OFF ' +
+                 '-DWITH_CUDA=OFF ' +
                  '-DWITH_TIFF=ON -DBUILD_TIFF=ON ' +
                  '-DWITH_JASPER=ON -DBUILD_JASPER=ON ' +
                  '-DWITH_WEBP=ON -DBUILD_WEBP=ON ' +
@@ -74,9 +75,9 @@ def build_opencv(srcroot, buildroot, target, arch):
         if os.path.isfile(wlib):
             os.remove(wlib)
 
-    cmds = ('xcodebuild -parallelizeTargets ARCHS=%s -sdk %s ' +
+    cmds = ('xcodebuild -parallelizeTargets ARCHS="%s" -sdk %s ' +
             '-configuration Release -target ALL_BUILD',
-            'xcodebuild -parallelizeTargets ARCHS=%s -sdk %s ' +
+            'xcodebuild ARCHS="%s" -sdk %s ' +
             '-configuration Release -target install install')
     for cmd in cmds:
         os.system(cmd % (arch, target.lower()))
@@ -111,7 +112,7 @@ def put_framework_together(srcroot, dstroot):
     wlist = ' '.join([os.path.join('..', 'build', t, 'lib', 'Release',
                                    'libopencv_world.a')
                       for t in targetlist])
-    os.system('lipo -create %s -o %s' %
+    os.system('lipo -create "%s" -o "%s"' %
               (wlist, os.path.join(dstdir, 'opencv2')))
 
     # copy Info.plist
@@ -128,7 +129,7 @@ def put_framework_together(srcroot, dstroot):
 
 def build_framework(srcroot, dstroot):
     "main function to do all the work"
-    targets = [('MacOSX', 'x86_64'), ('MacOSX', 'i386')]
+    targets = [('MacOSX', 'x86_64 i386'), ]
     for (target, arch) in targets:
         build_opencv(srcroot=srcroot,
                      buildroot=os.path.join(dstroot, 'build'),
