@@ -57,13 +57,16 @@ NSImage* MatToNSImage(const cv::Mat& image) {
     NSImage *finalImage;
     std::vector<unsigned char> buf;
     cv::imencode(".tiff", image, buf);
-    finalImage = [NSImage initWithData: [NSData dataWithBytes: buf.data()
-                                                length: buf.size()]];
+    finalImage = [[NSImage alloc] initWithData: [NSData dataWithBytes: buf.data()
+                                                        length: buf.size()]];
     return finalImage;
 }
 
 void NSImageToMat(const NSImage* image, cv::Mat& m, bool alphaExist) {
-    NSData* imgData = [image TIFFRepresentation];
+    // Decompress the TIFF representation so that libtiff can handle it,
+    // expecially in case of JPEG-compressed TIFFs.
+    NSData* imgData = [image TIFFRepresentationUsingCompression:NSTIFFCompressionNone
+                             factor: 0];
     cv::Mat buffer;
     m = cv::imdecode(cv::Mat(1,
                              [imgData length],
