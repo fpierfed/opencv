@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
-The script builds OpenCV.framework for iOS.
+The script builds OpenCV.framework for OSX.
 The built framework is universal, it can be used to build app and run it on
-either iOS simulator or real device.
+either 32-bit or 64-bit OSX.
 
 Usage:
     ./build_framework.py <outputdir>
@@ -14,10 +14,10 @@ Script will create <outputdir>, if it's missing, and a few its subdirectories:
 
     <outputdir>
         build/
-            iPhoneOS-*/
-               [cmake-generated build tree for an iOS device target]
-            iPhoneSimulator/
-               [cmake-generated build tree for iOS simulator]
+            MacOSX-i386/
+               [cmake-generated build tree for an i386 OSX device target]
+            MacOSX-x86_64/
+               [cmake-generated build tree for an x86_64 OSX device target]
         opencv2.framework/
             [the framework content]
 
@@ -25,12 +25,28 @@ The script should handle minor OpenCV updates efficiently
 - it does not recompile the library from scratch each time.
 However, opencv2.framework directory is erased and recreated on each run.
 """
-
 import glob
 import os
 import os.path
 import shutil
 import sys
+try:
+    from shlex import quote
+except ImportError:
+    import re
+
+    _find_unsafe = re.compile(r'[^\w@%+=:,./-]').search
+
+    def quote(s):
+        """Return a shell-escaped version of the string *s*."""
+        if not s:
+            return "''"
+        if _find_unsafe(s) is None:
+            return s
+
+        # use single quotes, and put single quotes into double quotes
+        # the string $'b is then quoted as '$'"'"'b'
+        return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
 def build_opencv(srcroot, buildroot, target, arch):
@@ -103,16 +119,16 @@ def put_framework_together(srcroot, dstroot):
     dstdir = os.path.join('Versions', 'A')
     os.makedirs(os.path.join(dstdir, 'Resources'))
 
-    tdir0 = os.path.join('..', 'build', targetlist[0])
+    tdir0 = os.path.join(dstroot, 'build', targetlist[0])
     # copy headers
     shutil.copytree(os.path.join(tdir0, 'install', 'include', 'opencv2'),
                     os.path.join(dstdir, 'Headers'))
 
     # make universal static lib
-    wlist = ' '.join([os.path.join('..', 'build', t, 'lib', 'Release',
-                                   'libopencv_world.a')
+    wlist = ' '.join([quote(os.path.join(dstroot, 'build', t, 'lib', 'Release',
+                                         'libopencv_world.a'))
                       for t in targetlist])
-    os.system('lipo -create "%s" -o "%s"' %
+    os.system('lipo -create %s -o "%s"' %
               (wlist, os.path.join(dstdir, 'opencv2')))
 
     # copy Info.plist
@@ -129,7 +145,7 @@ def put_framework_together(srcroot, dstroot):
 
 def build_framework(srcroot, dstroot):
     "main function to do all the work"
-    targets = [('MacOSX', 'x86_64 i386'), ]
+    targets = [('MacOSX', 'x86_64'), ('MacOSX', 'i386')]
     for (target, arch) in targets:
         build_opencv(srcroot=srcroot,
                      buildroot=os.path.join(dstroot, 'build'),
