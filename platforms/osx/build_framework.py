@@ -64,12 +64,13 @@ def build_opencv(srcroot, buildroot, target, arch):
                  '-DBUILD_SHARED_LIBS=OFF ' +
                  '-DBUILD_DOCS=OFF ' +
                  '-DBUILD_EXAMPLES=OFF ' +
-                 '-DBUILD_TESTS=OFF ' +
+                 '-DBUILD_TESTS=ON ' +
                  '-DBUILD_PERF_TESTS=OFF ' +
                  '-DBUILD_opencv_apps=OFF ' +
                  '-DBUILD_opencv_world=ON ' +
                  '-DBUILD_opencv_matlab=OFF ' +
                  '-DWITH_CUDA=OFF ' +
+                 '-DWITH_FFMPEG=OFF ' +
                  '-DWITH_TIFF=ON -DBUILD_TIFF=ON ' +
                  '-DWITH_JASPER=ON -DBUILD_JASPER=ON ' +
                  '-DWITH_WEBP=ON -DBUILD_WEBP=ON ' +
@@ -79,10 +80,13 @@ def build_opencv(srcroot, buildroot, target, arch):
                  '-DCMAKE_INSTALL_PREFIX=install')
     # if cmake cache exists, just rerun cmake to update OpenCV.xproj if
     # necessary
+    cmd = 'cmake %s %s' % (cmakeargs, srcroot)
     if os.path.isfile(os.path.join(builddir, 'CMakeCache.txt')):
-        os.system('cmake %s .' % (cmakeargs,))
-    else:
-        os.system('cmake %s %s' % (cmakeargs, srcroot))
+        cmd = 'cmake %s .' % (cmakeargs,)
+    err = os.system(cmd)
+    if err:
+        print('Command "%s" failed with exit code %d' % (cmd, err))
+        return err
 
     wlibs = (os.path.join(builddir, 'modules', 'world', 'UninstalledProducts',
                           'libopencv_world.a'),
@@ -96,9 +100,13 @@ def build_opencv(srcroot, buildroot, target, arch):
             'xcodebuild ARCHS="%s" -sdk %s ' +
             '-configuration Release -target install install')
     for cmd in cmds:
-        os.system(cmd % (arch, target.lower()))
+        fullcmd = cmd % (arch, target.lower())
+        err = os.system(fullcmd)
+        if err:
+            print('Command "%s" failed with exit code %d' % (fullcmd, err))
+            return err
     os.chdir(currdir)
-    return
+    return 0
 
 
 def put_framework_together(srcroot, dstroot):
@@ -147,12 +155,12 @@ def build_framework(srcroot, dstroot):
     "main function to do all the work"
     targets = [('MacOSX', 'x86_64'), ('MacOSX', 'i386')]
     for (target, arch) in targets:
-        build_opencv(srcroot=srcroot,
-                     buildroot=os.path.join(dstroot, 'build'),
-                     target=target,
-                     arch=arch)
+        err = build_opencv(srcroot=srcroot, target=target, arch=arch,
+                           buildroot=os.path.join(dstroot, 'build'))
+        if err:
+            return err
     put_framework_together(srcroot, dstroot)
-    return
+    return 0
 
 
 if __name__ == '__main__':
