@@ -231,6 +231,14 @@ CvCapture_OpenNI2::CvCapture_OpenNI2( int index )
         return;
     }
 
+    // find appropriate device URI
+    openni::Array<openni::DeviceInfo> ldevs;
+    if (index > 0)
+    {
+        openni::OpenNI::enumerateDevices(&ldevs);
+        deviceURI = ldevs[index].getUri();
+    }
+
     status = device.open(deviceURI);
     if( status != openni::STATUS_OK )
     {
@@ -903,7 +911,7 @@ IplImage* CvCapture_OpenNI2::retrieveFrame( int outputType )
     return image;
 }
 
-CvCapture* cvCreateCameraCapture_OpenNI( int index )
+CvCapture* cvCreateCameraCapture_OpenNI2( int index )
 {
     CvCapture_OpenNI2* capture = new CvCapture_OpenNI2( index );
 

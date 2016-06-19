@@ -69,19 +69,13 @@ int main(int argc, char *argv[])
 {
     vector<String> fileName;
     Mat img(600, 800, CV_8UC1);
-    if (argc == 1)
-    {
-        fileName.push_back("../data/detect_blob.png");
-    }
-    else if (argc == 2)
-    {
-        fileName.push_back(argv[1]);
-    }
-    else
+    cv::CommandLineParser parser(argc, argv, "{@input |../data/detect_blob.png| }{h help | | }");
+    if (parser.has("h"))
     {
         help();
-        return(0);
+        return 0;
     }
+    fileName.push_back(parser.get<string>("@input"));
     img = imread(fileName[0], IMREAD_COLOR);
     if (img.rows*img.cols <= 0)
     {
@@ -165,14 +159,14 @@ int main(int argc, char *argv[])
     String label;
     // Descriptor loop
     vector<String>::iterator itDesc;
-    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); itDesc++)
+    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); ++itDesc)
     {
         vector<KeyPoint> keyImg1;
         if (*itDesc == "BLOB")
         {
             b = SimpleBlobDetector::create(*itBLOB);
             label = Legende(*itBLOB);
-            itBLOB++;
+            ++itBLOB;
         }
         try
         {
@@ -187,7 +181,7 @@ int main(int argc, char *argv[])
                 sbd->detect(img, keyImg, Mat());
                 drawKeypoints(img, keyImg, result);
                 int i = 0;
-                for (vector<KeyPoint>::iterator k = keyImg.begin(); k != keyImg.end(); k++, i++)
+                for (vector<KeyPoint>::iterator k = keyImg.begin(); k != keyImg.end(); ++k, ++i)
                     circle(result, k->pt, (int)k->size, palette[i % 65536]);
             }
             namedWindow(*itDesc + label, WINDOW_AUTOSIZE);

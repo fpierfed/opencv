@@ -300,7 +300,7 @@ typedef struct ImplData
     {
         std::vector<cv::String> out;
 
-        for(int i = 0; i < implCode.size(); i++)
+        for(int i = 0; i < (int)implCode.size(); i++)
         {
             if(impl == implCode[i])
                 out.push_back(funName[i]);
@@ -314,10 +314,10 @@ typedef struct ImplData
         std::vector<int> savedCode;
         std::vector<cv::String> savedName;
 
-        for(int i = 0; i < implCode.size(); i++)
+        for(int i = 0; i < (int)implCode.size(); i++)
         {
             bool match = false;
-            for(int j = 0; j < savedCode.size(); j++)
+            for(int j = 0; j < (int)savedCode.size(); j++)
             {
                 if(implCode[i] == savedCode[j] && !funName[i].compare(savedName[j]))
                 {
@@ -369,7 +369,12 @@ public:
     static enum PERF_STRATEGY getCurrentModulePerformanceStrategy();
     static enum PERF_STRATEGY setModulePerformanceStrategy(enum PERF_STRATEGY strategy);
 
-    class PerfSkipTestException: public cv::Exception {};
+    class PerfSkipTestException: public cv::Exception
+    {
+        int dummy; // workaround for MacOSX Xcode 7.3 bug (don't make class "empty")
+    public:
+        PerfSkipTestException() : dummy(0) {}
+    };
 
 protected:
     virtual void PerfTestBody() = 0;
@@ -476,9 +481,6 @@ template<typename T> class TestBaseWithParam: public TestBase, public ::testing:
 
 typedef std::tr1::tuple<cv::Size, MatType> Size_MatType_t;
 typedef TestBaseWithParam<Size_MatType_t> Size_MatType;
-
-typedef std::tr1::tuple<cv::Size, MatDepth> Size_MatDepth_t;
-typedef TestBaseWithParam<Size_MatDepth_t> Size_MatDepth;
 
 /*****************************************************************************************\
 *                              Print functions for googletest                             *

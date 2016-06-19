@@ -53,7 +53,7 @@ namespace cv { namespace
         double dalpha;
     };
 
-    void subMatrix(const Mat& src, Mat& dst, const std::vector<int>& cols, const std::vector<int>& rows);
+    void subMatrix(const Mat& src, Mat& dst, const std::vector<uchar>& cols, const std::vector<uchar>& rows);
 }}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -406,7 +406,7 @@ void cv::fisheye::initUndistortRectifyMap( InputArray K, InputArray D, InputArra
     map2.create( size, map1.type() == CV_16SC2 ? CV_16UC1 : CV_32F );
 
     CV_Assert((K.depth() == CV_32F || K.depth() == CV_64F) && (D.depth() == CV_32F || D.depth() == CV_64F));
-    CV_Assert((P.depth() == CV_32F || P.depth() == CV_64F) && (R.depth() == CV_32F || R.depth() == CV_64F));
+    CV_Assert((P.empty() || P.depth() == CV_32F || P.depth() == CV_64F) && (R.empty() || R.depth() == CV_32F || R.depth() == CV_64F));
     CV_Assert(K.size() == Size(3, 3) && (D.empty() || D.total() == 4));
     CV_Assert(R.empty() || R.size() == Size(3, 3) || R.total() * R.channels() == 3);
     CV_Assert(P.empty() || P.size() == Size(3, 3) || P.size() == Size(4, 3));
@@ -512,7 +512,7 @@ void cv::fisheye::estimateNewCameraMatrixForUndistortRectify(InputArray K, Input
     OutputArray P, double balance, const Size& new_size, double fov_scale)
 {
     CV_Assert( K.size() == Size(3, 3)       && (K.depth() == CV_32F || K.depth() == CV_64F));
-    CV_Assert((D.empty() || D.total() == 4) && (D.depth() == CV_32F || D.depth() == CV_64F || D.empty()));
+    CV_Assert(D.empty() || ((D.total() == 4) && (D.depth() == CV_32F || D.depth() == CV_64F)));
 
     int w = image_size.width, h = image_size.height;
     balance = std::min(std::max(balance, 0.0), 1.0);
@@ -694,12 +694,12 @@ double cv::fisheye::calibrate(InputArrayOfArrays objectPoints, InputArrayOfArray
     CV_Assert(!objectPoints.empty() && !imagePoints.empty() && objectPoints.total() == imagePoints.total());
     CV_Assert(objectPoints.type() == CV_32FC3 || objectPoints.type() == CV_64FC3);
     CV_Assert(imagePoints.type() == CV_32FC2 || imagePoints.type() == CV_64FC2);
-    CV_Assert((!K.empty() && K.size() == Size(3,3)) || K.empty());
-    CV_Assert((!D.empty() && D.total() == 4) || D.empty());
-    CV_Assert((!rvecs.empty() && rvecs.channels() == 3) || rvecs.empty());
-    CV_Assert((!tvecs.empty() && tvecs.channels() == 3) || tvecs.empty());
+    CV_Assert(K.empty() || (K.size() == Size(3,3)));
+    CV_Assert(D.empty() || (D.total() == 4));
+    CV_Assert(rvecs.empty() || (rvecs.channels() == 3));
+    CV_Assert(tvecs.empty() || (tvecs.channels() == 3));
 
-    CV_Assert(((flags & CALIB_USE_INTRINSIC_GUESS) && !K.empty() && !D.empty()) || !(flags & CALIB_USE_INTRINSIC_GUESS));
+    CV_Assert((!K.empty() && !D.empty()) || !(flags & CALIB_USE_INTRINSIC_GUESS));
 
     using namespace cv::internal;
     //-------------------------------Initialization
@@ -762,12 +762,12 @@ double cv::fisheye::calibrate(InputArrayOfArrays objectPoints, InputArrayOfArray
 
         double alpha_smooth2 = 1 - std::pow(1 - alpha_smooth, iter + 1.0);
 
-        Mat JJ2_inv, ex3;
-        ComputeJacobians(objectPoints, imagePoints, finalParam, omc, Tc, check_cond,thresh_cond, JJ2_inv, ex3);
+        Mat JJ2, ex3;
+        ComputeJacobians(objectPoints, imagePoints, finalParam, omc, Tc, check_cond,thresh_cond, JJ2, ex3);
 
-        Mat G =  alpha_smooth2 * JJ2_inv * ex3;
-
-        currentParam = finalParam + G;
+        Mat G;
+        solve(JJ2, ex3, G);
+        currentParam = finalParam + alpha_smooth2*G;
 
         change = norm(Vec4d(currentParam.f[0], currentParam.f[1], currentParam.c[0], currentParam.c[1]) -
                 Vec4d(finalParam.f[0], finalParam.f[1], finalParam.c[0], finalParam.c[1]))
@@ -794,13 +794,22 @@ double cv::fisheye::calibrate(InputArrayOfArrays objectPoints, InputArrayOfArray
 
     if (K.needed()) cv::Mat(_K).convertTo(K, K.empty() ? CV_64FC1 : K.type());
     if (D.needed()) cv::Mat(finalParam.k).convertTo(D, D.empty() ? CV_64FC1 : D.type());
-    if (rvecs.kind()==_InputArray::STD_VECTOR_MAT)
+    if (rvecs.isMatVector())
     {
-        int i;
-        for( i = 0; i < (int)objectPoints.total(); i++ )
+        int N = (int)objectPoints.total();
+
+        if(rvecs.empty())
+            rvecs.create(N, 1, CV_64FC3);
+
+        if(tvecs.empty())
+            tvecs.create(N, 1, CV_64FC3);
+
+        for(int i = 0; i < N; i++ )
         {
-            rvecs.getMat(i)=omc[i];
-            tvecs.getMat(i)=Tc[i];
+            rvecs.create(3, 1, CV_64F, i, true);
+            tvecs.create(3, 1, CV_64F, i, true);
+            memcpy(rvecs.getMat(i).ptr(), omc[i].val, sizeof(Vec3d));
+            memcpy(tvecs.getMat(i).ptr(), Tc[i].val, sizeof(Vec3d));
         }
     }
     else
@@ -825,12 +834,12 @@ double cv::fisheye::stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayO
     CV_Assert(imagePoints1.type() == CV_32FC2 || imagePoints1.type() == CV_64FC2);
     CV_Assert(imagePoints2.type() == CV_32FC2 || imagePoints2.type() == CV_64FC2);
 
-    CV_Assert((!K1.empty() && K1.size() == Size(3,3)) || K1.empty());
-    CV_Assert((!D1.empty() && D1.total() == 4) || D1.empty());
-    CV_Assert((!K2.empty() && K1.size() == Size(3,3)) || K2.empty());
-    CV_Assert((!D2.empty() && D1.total() == 4) || D2.empty());
+    CV_Assert(K1.empty() || (K1.size() == Size(3,3)));
+    CV_Assert(D1.empty() || (D1.total() == 4));
+    CV_Assert(K2.empty() || (K1.size() == Size(3,3)));
+    CV_Assert(D2.empty() || (D1.total() == 4));
 
-    CV_Assert(((flags & CALIB_FIX_INTRINSIC) && !K1.empty() && !K2.empty() && !D1.empty() && !D2.empty()) || !(flags & CALIB_FIX_INTRINSIC));
+    CV_Assert((!K1.empty() && !K2.empty() && !D1.empty() && !D2.empty()) || !(flags & CALIB_FIX_INTRINSIC));
 
     //-------------------------------Initialization
 
@@ -899,7 +908,7 @@ double cv::fisheye::stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayO
     intrinsicLeft_errors.isEstimate = intrinsicLeft.isEstimate;
     intrinsicRight_errors.isEstimate = intrinsicRight.isEstimate;
 
-    std::vector<int> selectedParams;
+    std::vector<uchar> selectedParams;
     std::vector<int> tmp(6 * (n_images + 1), 1);
     selectedParams.insert(selectedParams.end(), intrinsicLeft.isEstimate.begin(), intrinsicLeft.isEstimate.end());
     selectedParams.insert(selectedParams.end(), intrinsicRight.isEstimate.begin(), intrinsicRight.isEstimate.end());
@@ -923,7 +932,6 @@ double cv::fisheye::stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayO
 
     cv::Mat J = cv::Mat::zeros(4 * n_points * n_images, 18 + 6 * (n_images + 1), CV_64FC1),
             e = cv::Mat::zeros(4 * n_points * n_images, 1, CV_64FC1), Jkk, ekk;
-    cv::Mat J2_inv;
 
     for(int iter = 0; ; ++iter)
     {
@@ -1000,12 +1008,11 @@ double cv::fisheye::stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayO
         cv::Vec6d oldTom(Tcur[0], Tcur[1], Tcur[2], omcur[0], omcur[1], omcur[2]);
 
         //update all parameters
-        cv::subMatrix(J, J, selectedParams, std::vector<int>(J.rows, 1));
-        cv::Mat J2 = J.t() * J;
-        J2_inv = J2.inv();
+        cv::subMatrix(J, J, selectedParams, std::vector<uchar>(J.rows, 1));
         int a = cv::countNonZero(intrinsicLeft.isEstimate);
         int b = cv::countNonZero(intrinsicRight.isEstimate);
-        cv::Mat deltas = J2_inv * J.t() * e;
+        cv::Mat deltas;
+        solve(J.t() * J, J.t()*e, deltas);
         intrinsicLeft = intrinsicLeft + deltas.rowRange(0, a);
         intrinsicRight = intrinsicRight + deltas.rowRange(a, a + b);
         omcur = omcur + cv::Vec3d(deltas.rowRange(a + b, a + b + 3));
@@ -1052,12 +1059,12 @@ double cv::fisheye::stereoCalibrate(InputArrayOfArrays objectPoints, InputArrayO
 }
 
 namespace cv{ namespace {
-void subMatrix(const Mat& src, Mat& dst, const std::vector<int>& cols, const std::vector<int>& rows)
+void subMatrix(const Mat& src, Mat& dst, const std::vector<uchar>& cols, const std::vector<uchar>& rows)
 {
-    CV_Assert(src.type() == CV_64FC1);
+    CV_Assert(src.channels() == 1);
 
     int nonzeros_cols = cv::countNonZero(cols);
-    Mat tmp(src.rows, nonzeros_cols, CV_64FC1);
+    Mat tmp(src.rows, nonzeros_cols, CV_64F);
 
     for (int i = 0, j = 0; i < (int)cols.size(); i++)
     {
@@ -1068,16 +1075,14 @@ void subMatrix(const Mat& src, Mat& dst, const std::vector<int>& cols, const std
     }
 
     int nonzeros_rows  = cv::countNonZero(rows);
-    Mat tmp1(nonzeros_rows, nonzeros_cols, CV_64FC1);
+    dst.create(nonzeros_rows, nonzeros_cols, CV_64F);
     for (int i = 0, j = 0; i < (int)rows.size(); i++)
     {
         if (rows[i])
         {
-            tmp.row(i).copyTo(tmp1.row(j++));
+            tmp.row(i).copyTo(dst.row(j++));
         }
     }
-
-    dst = tmp1.clone();
 }
 
 }}
@@ -1299,12 +1304,12 @@ cv::Mat cv::internal::NormalizePixels(const Mat& imagePoints, const IntrinsicPar
     CV_Assert(!imagePoints.empty() && imagePoints.type() == CV_64FC2);
 
     Mat distorted((int)imagePoints.total(), 1, CV_64FC2), undistorted;
-    const Vec2d* ptr   = imagePoints.ptr<Vec2d>(0);
-    Vec2d* ptr_d = distorted.ptr<Vec2d>(0);
+    const Vec2d* ptr   = imagePoints.ptr<Vec2d>();
+    Vec2d* ptr_d = distorted.ptr<Vec2d>();
     for (size_t i = 0; i < imagePoints.total(); ++i)
     {
         ptr_d[i] = (ptr[i] - param.c).mul(Vec2d(1.0 / param.f[0], 1.0 / param.f[1]));
-        ptr_d[i][0] = ptr_d[i][0] - param.alpha * ptr_d[i][1];
+        ptr_d[i][0] -= param.alpha * ptr_d[i][1];
     }
     cv::fisheye::undistortPoints(distorted, undistorted, Matx33d::eye(), param.k);
     return undistorted;
@@ -1312,12 +1317,11 @@ cv::Mat cv::internal::NormalizePixels(const Mat& imagePoints, const IntrinsicPar
 
 void cv::internal::InitExtrinsics(const Mat& _imagePoints, const Mat& _objectPoints, const IntrinsicParams& param, Mat& omckk, Mat& Tckk)
 {
-
     CV_Assert(!_objectPoints.empty() && _objectPoints.type() == CV_64FC3);
     CV_Assert(!_imagePoints.empty() && _imagePoints.type() == CV_64FC2);
 
-    Mat imagePointsNormalized = NormalizePixels(_imagePoints.t(), param).reshape(1).t();
-    Mat objectPoints = Mat(_objectPoints.t()).reshape(1).t();
+    Mat imagePointsNormalized = NormalizePixels(_imagePoints, param).reshape(1).t();
+    Mat objectPoints = _objectPoints.reshape(1).t();
     Mat objectPointsMean, covObjectPoints;
     Mat Rckk;
     int Np = imagePointsNormalized.cols;
@@ -1370,9 +1374,12 @@ void cv::internal::CalibrateExtrinsics(InputArrayOfArrays objectPoints, InputArr
         objectPoints.getMat(image_idx).convertTo(object,  CV_64FC3);
         imagePoints.getMat (image_idx).convertTo(image, CV_64FC2);
 
-        InitExtrinsics(image, object, param, omckk, Tckk);
+        bool imT = image.rows < image.cols;
+        bool obT = object.rows < object.cols;
 
-        ComputeExtrinsicRefine(image, object, omckk, Tckk, JJ_kk, maxIter, param, thresh_cond);
+        InitExtrinsics(imT ? image.t() : image, obT ? object.t() : object, param, omckk, Tckk);
+
+        ComputeExtrinsicRefine(!imT ? image.t() : image, !obT ? object.t() : object, omckk, Tckk, JJ_kk, maxIter, param, thresh_cond);
         if (check_cond)
         {
             SVD svd(JJ_kk, SVD::NO_UV);
@@ -1383,10 +1390,9 @@ void cv::internal::CalibrateExtrinsics(InputArrayOfArrays objectPoints, InputArr
     }
 }
 
-
 void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints,
                       const IntrinsicParams& param,  InputArray omc, InputArray Tc,
-                      const int& check_cond, const double& thresh_cond, Mat& JJ2_inv, Mat& ex3)
+                      const int& check_cond, const double& thresh_cond, Mat& JJ2, Mat& ex3)
 {
     CV_Assert(!objectPoints.empty() && (objectPoints.type() == CV_32FC3 || objectPoints.type() == CV_64FC3));
     CV_Assert(!imagePoints.empty() && (imagePoints.type() == CV_32FC2 || imagePoints.type() == CV_64FC2));
@@ -1396,7 +1402,7 @@ void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayO
 
     int n = (int)objectPoints.total();
 
-    Mat JJ3 = Mat::zeros(9 + 6 * n, 9 + 6 * n, CV_64FC1);
+    JJ2 = Mat::zeros(9 + 6 * n, 9 + 6 * n, CV_64FC1);
     ex3 = Mat::zeros(9 + 6 * n, 1, CV_64FC1 );
 
     for (int image_idx = 0; image_idx < n; ++image_idx)
@@ -1405,12 +1411,13 @@ void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayO
         objectPoints.getMat(image_idx).convertTo(object, CV_64FC3);
         imagePoints.getMat (image_idx).convertTo(image, CV_64FC2);
 
+        bool imT = image.rows < image.cols;
         Mat om(omc.getMat().col(image_idx)), T(Tc.getMat().col(image_idx));
 
         std::vector<Point2d> x;
         Mat jacobians;
         projectPoints(object, x, om, T, param, jacobians);
-        Mat exkk = image.t() - Mat(x);
+        Mat exkk = (imT ? image.t() : image) - Mat(x);
 
         Mat A(jacobians.rows, 9, CV_64FC1);
         jacobians.colRange(0, 4).copyTo(A.colRange(0, 4));
@@ -1422,16 +1429,14 @@ void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayO
         Mat B = jacobians.colRange(8, 14).clone();
         B = B.t();
 
-        JJ3(Rect(0, 0, 9, 9)) = JJ3(Rect(0, 0, 9, 9)) + A * A.t();
-        JJ3(Rect(9 + 6 * image_idx, 9 + 6 * image_idx, 6, 6)) = B * B.t();
+        JJ2(Rect(0, 0, 9, 9)) += A * A.t();
+        JJ2(Rect(9 + 6 * image_idx, 9 + 6 * image_idx, 6, 6)) = B * B.t();
 
-        Mat AB = A * B.t();
-        AB.copyTo(JJ3(Rect(9 + 6 * image_idx, 0, 6, 9)));
+        JJ2(Rect(9 + 6 * image_idx, 0, 6, 9)) = A * B.t();
+        JJ2(Rect(0, 9 + 6 * image_idx, 9, 6)) = JJ2(Rect(9 + 6 * image_idx, 0, 6, 9)).t();
 
-        JJ3(Rect(0, 9 + 6 * image_idx, 9, 6)) = AB.t();
-        ex3(Rect(0,0,1,9)) = ex3(Rect(0,0,1,9)) + A * exkk.reshape(1, 2 * exkk.rows);
-
-        ex3(Rect(0, 9 + 6 * image_idx, 1, 6)) = B * exkk.reshape(1, 2 * exkk.rows);
+        ex3.rowRange(0, 9) += A * exkk.reshape(1, 2 * exkk.rows);
+        ex3.rowRange(9 + 6 * image_idx, 9 + 6 * (image_idx + 1)) = B * exkk.reshape(1, 2 * exkk.rows);
 
         if (check_cond)
         {
@@ -1441,12 +1446,11 @@ void cv::internal::ComputeJacobians(InputArrayOfArrays objectPoints, InputArrayO
         }
     }
 
-    std::vector<int> idxs(param.isEstimate);
+    std::vector<uchar> idxs(param.isEstimate);
     idxs.insert(idxs.end(), 6 * n, 1);
 
-    subMatrix(JJ3, JJ3, idxs, idxs);
-    subMatrix(ex3, ex3, std::vector<int>(1, 1), idxs);
-    JJ2_inv = JJ3.inv();
+    subMatrix(JJ2, JJ2, idxs, idxs);
+    subMatrix(ex3, ex3, std::vector<uchar>(1, 1), idxs);
 }
 
 void cv::internal::EstimateUncertainties(InputArrayOfArrays objectPoints, InputArrayOfArrays imagePoints,
@@ -1467,41 +1471,30 @@ void cv::internal::EstimateUncertainties(InputArrayOfArrays objectPoints, InputA
         objectPoints.getMat(image_idx).convertTo(object, CV_64FC3);
         imagePoints.getMat (image_idx).convertTo(image, CV_64FC2);
 
+        bool imT = image.rows < image.cols;
+
         Mat om(omc.getMat().col(image_idx)), T(Tc.getMat().col(image_idx));
 
         std::vector<Point2d> x;
         projectPoints(object, x, om, T, params, noArray());
-        Mat ex_ = image.t() - Mat(x);
+        Mat ex_ = (imT ? image.t() : image) - Mat(x);
         ex_.copyTo(ex.rowRange(ex_.rows * image_idx,  ex_.rows * (image_idx + 1)));
     }
 
     meanStdDev(ex, noArray(), std_err);
     std_err *= sqrt((double)ex.total()/((double)ex.total() - 1.0));
 
-    Mat sigma_x;
+    Vec<double, 1> sigma_x;
     meanStdDev(ex.reshape(1, 1), noArray(), sigma_x);
     sigma_x  *= sqrt(2.0 * (double)ex.total()/(2.0 * (double)ex.total() - 1.0));
 
-    Mat _JJ2_inv, ex3;
-    ComputeJacobians(objectPoints, imagePoints, params, omc, Tc, check_cond, thresh_cond, _JJ2_inv, ex3);
+    Mat JJ2, ex3;
+    ComputeJacobians(objectPoints, imagePoints, params, omc, Tc, check_cond, thresh_cond, JJ2, ex3);
 
-    Mat_<double>& JJ2_inv = (Mat_<double>&)_JJ2_inv;
+    sqrt(JJ2.inv(), JJ2);
 
-    sqrt(JJ2_inv, JJ2_inv);
-
-    double s  = sigma_x.at<double>(0);
-    Mat r = 3 * s * JJ2_inv.diag();
-    errors = r;
-
-    rms = 0;
-    const Vec2d* ptr_ex = ex.ptr<Vec2d>();
-    for (size_t i = 0; i < ex.total(); i++)
-    {
-        rms += ptr_ex[i][0] * ptr_ex[i][0] + ptr_ex[i][1] * ptr_ex[i][1];
-    }
-
-    rms /= (double)ex.total();
-    rms = sqrt(rms);
+    errors = 3 * sigma_x(0) * JJ2.diag();
+    rms = sqrt(norm(ex, NORM_L2SQR)/ex.total());
 }
 
 void cv::internal::dAB(InputArray A, InputArray B, OutputArray dABdA, OutputArray dABdB)

@@ -19,7 +19,7 @@ IF(CMAKE_COMPILER_IS_GNUCXX)
         ARGS ${CMAKE_CXX_COMPILER_ARG1} -dumpversion
         OUTPUT_VARIABLE gcc_compiler_version)
     #MESSAGE("GCC Version: ${gcc_compiler_version}")
-    IF(gcc_compiler_version VERSION_GREATER "4.2.-1")
+    IF(gcc_compiler_version VERSION_GREATER "4.2.-1" AND gcc_compiler_version VERSION_LESS "6.0.0")
         SET(PCHSupport_FOUND TRUE)
     ENDIF()
 
@@ -83,11 +83,6 @@ MACRO(_PCH_GET_COMPILE_FLAGS _out_compile_flags)
         endif()
     ENDFOREACH(item)
 
-    GET_DIRECTORY_PROPERTY(_directory_flags DEFINITIONS)
-    GET_DIRECTORY_PROPERTY(_global_definitions DIRECTORY ${OpenCV_SOURCE_DIR} DEFINITIONS)
-    #MESSAGE("_directory_flags ${_directory_flags} ${_global_definitions}" )
-    LIST(APPEND ${_out_compile_flags} ${_directory_flags})
-    LIST(APPEND ${_out_compile_flags} ${_global_definitions})
     LIST(APPEND ${_out_compile_flags} ${CMAKE_CXX_FLAGS})
 
     SEPARATE_ARGUMENTS(${_out_compile_flags})
@@ -169,9 +164,9 @@ MACRO(_PCH_GET_TARGET_COMPILE_FLAGS _cflags  _header_name _pch_path _dowarn )
         # if you have different versions of the headers for different build types
         # you may set _pch_dowarn
         IF (_dowarn)
-            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -include \"${CMAKE_CURRENT_BINARY_DIR}/${_header_name}\" -Winvalid-pch " )
+            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -Winvalid-pch " )
         ELSE (_dowarn)
-            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} -include \"${CMAKE_CURRENT_BINARY_DIR}/${_header_name}\" " )
+            SET(${_cflags} "${PCH_ADDITIONAL_COMPILER_FLAGS} " )
         ENDIF (_dowarn)
 
     ELSE(CMAKE_COMPILER_IS_GNUCXX)
@@ -277,7 +272,7 @@ MACRO(ADD_PRECOMPILED_HEADER _targetName _input)
 
     ADD_CUSTOM_COMMAND(
       OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}"
-      COMMAND ${CMAKE_COMMAND} -E copy  "${_input}" "${CMAKE_CURRENT_BINARY_DIR}/${_name}" # ensure same directory! Required by gcc
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_input}" "${CMAKE_CURRENT_BINARY_DIR}/${_name}" # ensure same directory! Required by gcc
       DEPENDS "${_input}"
       )
 

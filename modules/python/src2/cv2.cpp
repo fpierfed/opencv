@@ -1,6 +1,6 @@
 #if defined(_MSC_VER) && (_MSC_VER >= 1800)
 // eliminating duplicated round() declaration
-#define HAVE_ROUND
+#define HAVE_ROUND 1
 #endif
 
 #include <Python.h>
@@ -91,12 +91,14 @@ typedef std::vector<float> vector_float;
 typedef std::vector<double> vector_double;
 typedef std::vector<Point> vector_Point;
 typedef std::vector<Point2f> vector_Point2f;
+typedef std::vector<Point3f> vector_Point3f;
 typedef std::vector<Vec2f> vector_Vec2f;
 typedef std::vector<Vec3f> vector_Vec3f;
 typedef std::vector<Vec4f> vector_Vec4f;
 typedef std::vector<Vec6f> vector_Vec6f;
 typedef std::vector<Vec4i> vector_Vec4i;
 typedef std::vector<Rect> vector_Rect;
+typedef std::vector<Rect2d> vector_Rect2d;
 typedef std::vector<KeyPoint> vector_KeyPoint;
 typedef std::vector<Mat> vector_Mat;
 typedef std::vector<DMatch> vector_DMatch;
@@ -650,6 +652,21 @@ PyObject* pyopencv_from(const Rect& r)
 }
 
 template<>
+bool pyopencv_to(PyObject* obj, Rect2d& r, const char* name)
+{
+    (void)name;
+    if(!obj || obj == Py_None)
+        return true;
+    return PyArg_ParseTuple(obj, "dddd", &r.x, &r.y, &r.width, &r.height) > 0;
+}
+
+template<>
+PyObject* pyopencv_from(const Rect2d& r)
+{
+    return Py_BuildValue("(dddd)", r.x, r.y, r.width, r.height);
+}
+
+template<>
 bool pyopencv_to(PyObject* obj, Range& r, const char* name)
 {
     (void)name;
@@ -717,6 +734,23 @@ bool pyopencv_to(PyObject* obj, Point2d& p, const char* name)
     return PyArg_ParseTuple(obj, "dd", &p.x, &p.y) > 0;
 }
 
+template<>
+bool pyopencv_to(PyObject* obj, Point3f& p, const char* name)
+{
+    (void)name;
+    if(!obj || obj == Py_None)
+        return true;
+    return PyArg_ParseTuple(obj, "fff", &p.x, &p.y, &p.z) > 0;
+}
+
+template<>
+bool pyopencv_to(PyObject* obj, Point3d& p, const char* name)
+{
+    (void)name;
+    if(!obj || obj == Py_None)
+        return true;
+    return PyArg_ParseTuple(obj, "ddd", &p.x, &p.y, &p.z) > 0;
+}
 
 template<>
 PyObject* pyopencv_from(const Point& p)
@@ -728,6 +762,12 @@ template<>
 PyObject* pyopencv_from(const Point2f& p)
 {
     return Py_BuildValue("(dd)", p.x, p.y);
+}
+
+template<>
+PyObject* pyopencv_from(const Point3f& p)
+{
+    return Py_BuildValue("(ddd)", p.x, p.y, p.z);
 }
 
 template<>
@@ -755,6 +795,12 @@ template<>
 PyObject* pyopencv_from(const Point2d& p)
 {
     return Py_BuildValue("(dd)", p.x, p.y);
+}
+
+template<>
+PyObject* pyopencv_from(const Point3d& p)
+{
+    return Py_BuildValue("(ddd)", p.x, p.y, p.y);
 }
 
 template<typename _Tp> struct pyopencvVecConverter
@@ -921,6 +967,24 @@ template<typename _Tp> static inline PyObject* pyopencv_from_generic_vec(const s
     return seq;
 }
 
+template<>
+PyObject* pyopencv_from(const std::pair<int, double>& src)
+{
+    return Py_BuildValue("(id)", src.first, src.second);
+}
+
+template<typename _Tp, typename _Tr> struct pyopencvVecConverter<std::pair<_Tp, _Tr> >
+{
+    static bool to(PyObject* obj, std::vector<std::pair<_Tp, _Tr> >& value, const ArgInfo info)
+    {
+        return pyopencv_to_generic_vec(obj, value, info);
+    }
+
+    static PyObject* from(const std::vector<std::pair<_Tp, _Tr> >& value)
+    {
+        return pyopencv_from_generic_vec(value);
+    }
+};
 
 template<typename _Tp> struct pyopencvVecConverter<std::vector<_Tp> >
 {

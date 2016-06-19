@@ -10,16 +10,16 @@ class Fail(Exception):
     def __str__(self):
         return "ERROR" if self.t is None else self.t
 
-def execute(cmd):
+def execute(cmd, shell=False):
     try:
         log.info("Executing: %s" % cmd)
-        retcode = subprocess.call(cmd)
+        retcode = subprocess.call(cmd, shell=shell)
         if retcode < 0:
             raise Fail("Child was terminated by signal:" %s -retcode)
         elif retcode > 0:
             raise Fail("Child returned: %s" % retcode)
     except OSError as e:
-        raise Fail("Execution failed: %s" % e)
+        raise Fail("Execution failed: %d / %s" % (e.errno, e.strerror))
 
 def rm_one(d):
     d = os.path.abspath(d)
@@ -57,7 +57,7 @@ def determine_opencv_version(version_hpp_path):
         major = re.search(r'^#define\W+CV_VERSION_MAJOR\W+(\d+)$', data, re.MULTILINE).group(1)
         minor = re.search(r'^#define\W+CV_VERSION_MINOR\W+(\d+)$', data, re.MULTILINE).group(1)
         revision = re.search(r'^#define\W+CV_VERSION_REVISION\W+(\d+)$', data, re.MULTILINE).group(1)
-        version_status = re.search(r'^#define\W+CV_VERSION_STATUS\W+"([^"]*)"', data, re.MULTILINE).group(1)
+        version_status = re.search(r'^#define\W+CV_VERSION_STATUS\W+"([^"]*)"$', data, re.MULTILINE).group(1)
         return "%(major)s.%(minor)s.%(revision)s%(version_status)s" % locals()
 
 #===================================================================================================
@@ -92,6 +92,7 @@ class Builder:
     def __init__(self, workdir, opencvdir):
         self.workdir = check_dir(workdir, create=True)
         self.opencvdir = check_dir(opencvdir)
+        self.extra_modules_path = None
         self.libdest = check_dir(os.path.join(self.workdir, "o4a"), create=True, clean=True)
         self.docdest = check_dir(os.path.join(self.workdir, "javadoc"), create=True, clean=True)
         self.resultdest = check_dir(os.path.join(self.workdir, "OpenCV-android-sdk"), create=True, clean=True)
@@ -133,9 +134,14 @@ class Builder:
             "-DANDROID_NATIVE_API_LEVEL=8",
             "-DANDROID_ABI='%s'" % abi.cmake_name,
             "-DWITH_TBB=ON",
-            "-DANDROID_TOOLCHAIN_NAME=%s" % abi.toolchain,
-            self.opencvdir
+            "-DANDROID_TOOLCHAIN_NAME=%s" % abi.toolchain
         ]
+
+        if self.extra_modules_path is not None:
+            cmd.append("-DOPENCV_EXTRA_MODULES_PATH='%s'" % self.extra_modules_path)
+
+        cmd.append(self.opencvdir)
+
         if self.use_ccache == True:
             cmd.extend(["-DNDK_CCACHE=ccache", "-DENABLE_PRECOMPILED_HEADERS=OFF"])
         if do_install:
@@ -166,9 +172,10 @@ class Builder:
         # Add extra data
         apkxmldest = check_dir(os.path.join(apkdest, "res", "xml"), create=True)
         apklibdest = check_dir(os.path.join(apkdest, "libs", abi.name), create=True)
-        for ver, d in self.extra_packs + [("3.0.0", os.path.join(self.libdest, "lib"))]:
+        for ver, d in self.extra_packs + [("3.1.0", os.path.join(self.libdest, "lib"))]:
             r = ET.Element("library", attrib={"version": ver})
             log.info("Adding libraries from %s", d)
+
             for f in glob.glob(os.path.join(d, abi.name, "*.so")):
                 log.info("Copy file: %s", f)
                 shutil.copy2(f, apklibdest)
@@ -176,11 +183,15 @@ class Builder:
                     continue
                 log.info("Register file: %s", os.path.basename(f))
                 n = ET.SubElement(r, "file", attrib={"name": os.path.basename(f)})
-            xmlname = os.path.join(apkxmldest, "config%s.xml" % ver.replace(".", ""))
-            log.info("Generating XML config: %s", xmlname)
-            ET.ElementTree(r).write(xmlname, encoding="utf-8")
+
+            if len(list(r)) > 0:
+                xmlname = os.path.join(apkxmldest, "config%s.xml" % ver.replace(".", ""))
+                log.info("Generating XML config: %s", xmlname)
+                ET.ElementTree(r).write(xmlname, encoding="utf-8")
+
         execute(["ninja", "opencv_engine"])
-        execute(["ant", "-f", os.path.join(apkdest, "build.xml"), "debug"])
+        execute(["ant", "-f", os.path.join(apkdest, "build.xml"), "debug"],
+            shell=(sys.platform == 'win32'))
         # TODO: Sign apk
 
     def build_javadoc(self):
@@ -253,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("opencv_dir", help="Path to OpenCV source dir")
     parser.add_argument('--ndk_path', help="Path to Android NDK to use for build")
     parser.add_argument('--sdk_path', help="Path to Android SDK to use for build")
+    parser.add_argument("--extra_modules_path", help="Path to extra modules to use for build")
     parser.add_argument('--sign_with', help="Sertificate to sign the Manager apk")
     parser.add_argument('--build_doc', action="store_true", help="Build javadoc")
     parser.add_argument('--no_ccache', action="store_true", help="Do not use ccache during library build")
@@ -272,18 +284,22 @@ if __name__ == "__main__":
 
     builder = Builder(args.work_dir, args.opencv_dir)
 
+    if args.extra_modules_path is not None:
+        builder.extra_modules_path = os.path.abspath(args.extra_modules_path)
+
     if args.no_ccache:
         builder.use_ccache = False
 
     log.info("Detected OpenCV version: %s", builder.opencv_version)
     log.info("Detected Engine version: %s", builder.engine_version)
 
-    for one in args.extra_pack:
-        i = one.find(":")
-        if i > 0 and i < len(one) - 1:
-            builder.add_extra_pack(one[:i], one[i+1:])
-        else:
-            raise Fail("Bad extra pack provided: %s, should be in form '<version>:<path-to-native-libs>'" % one)
+    if args.extra_pack:
+        for one in args.extra_pack:
+            i = one.find(":")
+            if i > 0 and i < len(one) - 1:
+                builder.add_extra_pack(one[:i], one[i+1:])
+            else:
+                raise Fail("Bad extra pack provided: %s, should be in form '<version>:<path-to-native-libs>'" % one)
 
     engines = []
     for i, abi in enumerate(ABIs):

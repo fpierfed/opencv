@@ -74,7 +74,7 @@ See the OpenCV sample camshiftdemo.c that tracks colored objects.
 
 @note
 -   (Python) A sample explaining the camshift tracking algorithm can be found at
-    opencv_source_code/samples/python2/camshift.py
+    opencv_source_code/samples/python/camshift.py
  */
 CV_EXPORTS_W RotatedRect CamShift( InputArray probImage, CV_IN_OUT Rect& window,
                                    TermCriteria criteria );
@@ -166,9 +166,9 @@ The function implements a sparse iterative version of the Lucas-Kanade optical f
 -   An example using the Lucas-Kanade optical flow algorithm can be found at
     opencv_source_code/samples/cpp/lkdemo.cpp
 -   (Python) An example using the Lucas-Kanade optical flow algorithm can be found at
-    opencv_source_code/samples/python2/lk_track.py
+    opencv_source_code/samples/python/lk_track.py
 -   (Python) An example using the Lucas-Kanade tracker for homography matching can be found at
-    opencv_source_code/samples/python2/lk_homography.py
+    opencv_source_code/samples/python/lk_homography.py
  */
 CV_EXPORTS_W void calcOpticalFlowPyrLK( InputArray prevImg, InputArray nextImg,
                                         InputArray prevPts, InputOutputArray nextPts,
@@ -213,7 +213,7 @@ The function finds an optical flow for each prev pixel using the @cite Farneback
 -   An example using the optical flow algorithm described by Gunnar Farneback can be found at
     opencv_source_code/samples/cpp/fback.cpp
 -   (Python) An example using the optical flow algorithm described by Gunnar Farneback can be
-    found at opencv_source_code/samples/python2/opt_flow.py
+    found at opencv_source_code/samples/python/opt_flow.py
  */
 CV_EXPORTS_W void calcOpticalFlowFarneback( InputArray prev, InputArray next, InputOutputArray flow,
                                             double pyr_scale, int levels, int winsize,
@@ -226,7 +226,7 @@ CV_EXPORTS_W void calcOpticalFlowFarneback( InputArray prev, InputArray next, In
 @param dst Second input 2D point set of the same size and the same type as A, or another image.
 @param fullAffine If true, the function finds an optimal affine transformation with no additional
 restrictions (6 degrees of freedom). Otherwise, the class of transformations to choose from is
-limited to combinations of translation, rotation, and uniform scaling (5 degrees of freedom).
+limited to combinations of translation, rotation, and uniform scaling (4 degrees of freedom).
 
 The function finds an optimal affine transform *[A|b]* (a 2 x 3 floating-point matrix) that
 approximates best the affine transformation between:

@@ -184,6 +184,7 @@ void SimpleBlobDetectorImpl::read( const cv::FileNode& fn )
 
 void SimpleBlobDetectorImpl::write( cv::FileStorage& fs ) const
 {
+    writeFormat(fs);
     params.write(fs);
 }
 
@@ -310,6 +311,10 @@ void SimpleBlobDetectorImpl::detect(InputArray image, std::vector<cv::KeyPoint>&
         cvtColor(image, grayscaleImage, COLOR_BGR2GRAY);
     else
         grayscaleImage = image.getMat();
+
+    if (grayscaleImage.type() != CV_8UC1) {
+        CV_Error(Error::StsUnsupportedFormat, "Blob detector only supports 8-bit images!");
+    }
 
     std::vector < std::vector<Center> > centers;
     for (double thresh = params.minThreshold; thresh < params.maxThreshold; thresh += params.thresholdStep)

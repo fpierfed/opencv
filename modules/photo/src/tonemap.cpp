@@ -83,6 +83,7 @@ public:
 
     void write(FileStorage& fs) const
     {
+        writeFormat(fs);
         fs << "name" << name
            << "gamma" << gamma;
     }
@@ -161,6 +162,7 @@ public:
 
     void write(FileStorage& fs) const
     {
+        writeFormat(fs);
         fs << "name" << name
            << "gamma" << gamma
            << "bias" << bias
@@ -242,6 +244,7 @@ public:
 
     void write(FileStorage& fs) const
     {
+        writeFormat(fs);
         fs << "name" << name
            << "gamma" << gamma
            << "contrast" << contrast
@@ -339,6 +342,7 @@ public:
 
     void write(FileStorage& fs) const
     {
+        writeFormat(fs);
         fs << "name" << name
            << "gamma" << gamma
            << "intensity" << intensity
@@ -446,6 +450,7 @@ public:
 
     void write(FileStorage& fs) const
     {
+        writeFormat(fs);
         fs << "name" << name
            << "gamma" << gamma
            << "scale" << scale
@@ -510,8 +515,11 @@ protected:
 
     void calculateSum(std::vector<Mat>& x_contrast, std::vector<Mat>& y_contrast, Mat& sum)
     {
-        sum = Mat::zeros(x_contrast[x_contrast.size() - 1].size(), CV_32F);
-        for(int i = (int)x_contrast.size() - 1; i >= 0; i--)
+        if (x_contrast.empty())
+            return;
+        const int last = (int)x_contrast.size() - 1;
+        sum = Mat::zeros(x_contrast[last].size(), CV_32F);
+        for(int i = last; i >= 0; i--)
         {
             Mat grad_x, grad_y;
             getGradient(x_contrast[i], grad_x, 1);

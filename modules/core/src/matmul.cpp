@@ -859,76 +859,42 @@ static bool ocl_gemm( InputArray matA, InputArray matB, double alpha,
                ocl::KernelArg::ReadWrite(D, cn, kercn),
                sizeA.width, (float)alpha, (float)beta);
 
-    size_t globalsize[2] = { sizeD.width * cn / kercn, sizeD.height};
-    size_t localsize[2] = { block_size, block_size};
+    size_t globalsize[2] = { (size_t)sizeD.width * cn / kercn, (size_t)sizeD.height};
+    size_t localsize[2] = { (size_t)block_size, (size_t)block_size};
     return k.run(2, globalsize, block_size!=1 ? localsize : NULL, false);
 }
 #endif
-}
 
-void cv::gemm( InputArray matA, InputArray matB, double alpha,
-           InputArray matC, double beta, OutputArray _matD, int flags )
+static void gemmImpl( Mat A, Mat B, double alpha,
+           Mat C, double beta, Mat D, int flags )
 {
-#ifdef HAVE_CLAMDBLAS
-    CV_OCL_RUN(ocl::haveAmdBlas() && matA.dims() <= 2 && matB.dims() <= 2 && matC.dims() <= 2 && _matD.isUMat() &&
-        matA.cols() > 20 && matA.rows() > 20 && matB.cols() > 20, // since it works incorrect for small sizes
-        ocl_gemm_amdblas(matA, matB, alpha, matC, beta, _matD, flags))
-#endif
-
-#ifdef HAVE_OPENCL
-    CV_OCL_RUN(_matD.isUMat() && matA.dims() <= 2 && matB.dims() <= 2 && matC.dims() <= 2,
-               ocl_gemm(matA, matB, alpha, matC, beta, _matD, flags))
-#endif
-
     const int block_lin_size = 128;
     const int block_size = block_lin_size * block_lin_size;
 
     static double zero[] = {0,0,0,0};
     static float zerof[] = {0,0,0,0};
 
-    Mat A = matA.getMat(), B = matB.getMat(), C = beta != 0 ? matC.getMat() : Mat();
     Size a_size = A.size(), d_size;
     int i, len = 0, type = A.type();
-
-    CV_Assert( type == B.type() && (type == CV_32FC1 || type == CV_64FC1 || type == CV_32FC2 || type == CV_64FC2) );
 
     switch( flags & (GEMM_1_T|GEMM_2_T) )
     {
     case 0:
         d_size = Size( B.cols, a_size.height );
         len = B.rows;
-        CV_Assert( a_size.width == len );
         break;
     case 1:
         d_size = Size( B.cols, a_size.width );
         len = B.rows;
-        CV_Assert( a_size.height == len );
         break;
     case 2:
         d_size = Size( B.rows, a_size.height );
         len = B.cols;
-        CV_Assert( a_size.width == len );
         break;
     case 3:
         d_size = Size( B.rows, a_size.width );
         len = B.cols;
-        CV_Assert( a_size.height == len );
         break;
-    }
-
-    if( !C.empty() )
-    {
-        CV_Assert( C.type() == type &&
-            (((flags&GEMM_3_T) == 0 && C.rows == d_size.height && C.cols == d_size.width) ||
-             ((flags&GEMM_3_T) != 0 && C.rows == d_size.width && C.cols == d_size.height)));
-    }
-
-    _matD.create( d_size.height, d_size.width, type );
-    Mat D = _matD.getMat();
-    if( (flags & GEMM_3_T) != 0 && C.data == D.data )
-    {
-        transpose( C, C );
-        flags &= ~GEMM_3_T;
     }
 
     if( flags == 0 && 2 <= len && len <= 4 && (len == d_size.width || len == d_size.height) )
@@ -1194,8 +1160,7 @@ void cv::gemm( InputArray matA, InputArray matB, double alpha,
     GEMMSingleMulFunc singleMulFunc;
     GEMMBlockMulFunc blockMulFunc;
     GEMMStoreFunc storeFunc;
-    Mat *matD = &D, tmat;
-    size_t tmat_size = 0;
+    Mat *matD = &D;
     const uchar* Cdata = C.data;
     size_t Cstep = C.data ? (size_t)C.step : 0;
     AutoBuffer<uchar> buf;
@@ -1224,13 +1189,6 @@ void cv::gemm( InputArray matA, InputArray matB, double alpha,
         singleMulFunc = (GEMMSingleMulFunc)GEMMSingleMul_64fc;
         blockMulFunc = (GEMMBlockMulFunc)GEMMBlockMul_64fc;
         storeFunc = (GEMMStoreFunc)GEMMStore_64fc;
-    }
-
-    if( D.data == A.data || D.data == B.data )
-    {
-        tmat_size = (size_t)d_size.width*d_size.height*CV_ELEM_SIZE(type);
-        // Allocate tmat later, once the size of buf is known
-        matD = &tmat;
     }
 
     if( (d_size.width == 1 || len == 1) && !(flags & GEMM_2_T) && B.isContinuous() )
@@ -1306,10 +1264,6 @@ void cv::gemm( InputArray matA, InputArray matB, double alpha,
         (d_size.width <= block_lin_size &&
         d_size.height <= block_lin_size && len <= block_lin_size) )
     {
-        if( tmat_size > 0 ) {
-            buf.allocate(tmat_size);
-            tmat = Mat(d_size.height, d_size.width, type, (uchar*)buf );
-        }
         singleMulFunc( A.ptr(), A.step, B.ptr(), b_step, Cdata, Cstep,
                        matD->ptr(), matD->step, a_size, d_size, alpha, beta, flags );
     }
@@ -1369,14 +1323,12 @@ void cv::gemm( InputArray matA, InputArray matB, double alpha,
             flags &= ~GEMM_1_T;
         }
 
-        buf.allocate(d_buf_size + b_buf_size + a_buf_size + tmat_size);
+        buf.allocate(d_buf_size + b_buf_size + a_buf_size);
         d_buf = (uchar*)buf;
         b_buf = d_buf + d_buf_size;
 
         if( is_a_t )
             a_buf = b_buf + b_buf_size;
-        if( tmat_size > 0 )
-            tmat = Mat(d_size.height, d_size.width, type, b_buf + b_buf_size + a_buf_size );
 
         for( i = 0; i < d_size.height; i += di )
         {
@@ -1455,10 +1407,198 @@ void cv::gemm( InputArray matA, InputArray matB, double alpha,
             }
         }
     }
-
-    if( matD != &D )
-        matD->copyTo(D);
     }
+}
+
+template <typename fptype>inline static void
+callGemmImpl(const fptype *src1, size_t src1_step, const fptype *src2, size_t src2_step, fptype alpha,
+          const fptype *src3, size_t src3_step, fptype beta, fptype *dst, size_t dst_step, int m_a, int n_a, int n_d, int flags, int type)
+{
+    CV_StaticAssert(GEMM_1_T == CV_HAL_GEMM_1_T, "Incompatible GEMM_1_T flag in HAL");
+    CV_StaticAssert(GEMM_2_T == CV_HAL_GEMM_2_T, "Incompatible GEMM_2_T flag in HAL");
+    CV_StaticAssert(GEMM_3_T == CV_HAL_GEMM_3_T, "Incompatible GEMM_3_T flag in HAL");
+
+    int b_m, b_n, c_m, c_n, m_d;
+
+    if(flags & GEMM_2_T)
+    {
+        b_m = n_d;
+        if(flags & GEMM_1_T )
+        {
+            b_n = m_a;
+            m_d = n_a;
+        }
+        else
+        {
+            b_n = n_a;
+            m_d = m_a;
+        }
+    }
+    else
+    {
+        b_n = n_d;
+        if(flags & GEMM_1_T )
+        {
+            b_m = m_a;
+            m_d = n_a;
+        }
+        else
+        {
+            m_d = m_a;
+            b_m = n_a;
+        }
+    }
+
+    if(flags & GEMM_3_T)
+    {
+        c_m = n_d;
+        c_n = m_d;
+    }
+    else
+    {
+        c_m = m_d;
+        c_n = n_d;
+    }
+
+    Mat A, B, C;
+    if(src1 != NULL)
+        A = Mat(m_a, n_a, type, (void*)src1, src1_step);
+    if(src2 != NULL)
+        B = Mat(b_m, b_n, type, (void*)src2, src2_step);
+    if(src3 != NULL && beta != 0.0)
+        C = Mat(c_m, c_n, type, (void*)src3, src3_step);
+    Mat D(m_d, n_d, type, (void*)dst, dst_step);
+
+    gemmImpl(A, B, alpha, C, beta, D, flags);
+}
+
+}
+
+void cv::hal::gemm32f(const float* src1, size_t src1_step, const float* src2, size_t src2_step,
+                        float alpha, const float* src3, size_t src3_step, float beta, float* dst, size_t dst_step,
+                        int m_a, int n_a, int n_d, int flags)
+{
+
+    CALL_HAL(gemm32f, cv_hal_gemm32f, src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags)
+    callGemmImpl(src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags, CV_32F);
+}
+
+void cv::hal::gemm64f(const double* src1, size_t src1_step, const double* src2, size_t src2_step,
+                        double alpha, const double* src3, size_t src3_step, double beta, double* dst, size_t dst_step,
+                        int m_a, int n_a, int n_d, int flags)
+{
+    CALL_HAL(gemm64f, cv_hal_gemm64f, src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags)
+    callGemmImpl(src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags, CV_64F);
+}
+
+CV_EXPORTS void cv::hal::gemm32fc(const float* src1, size_t src1_step, const float* src2, size_t src2_step,
+                        float alpha, const float* src3, size_t src3_step, float beta, float* dst, size_t dst_step,
+                        int m_a, int n_a, int n_d, int flags)
+{
+    CALL_HAL(gemm32fc, cv_hal_gemm32fc, src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags)
+    callGemmImpl(src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags, CV_32FC2);
+}
+
+CV_EXPORTS void cv::hal::gemm64fc(const double* src1, size_t src1_step, const double* src2, size_t src2_step,
+                        double alpha, const double* src3, size_t src3_step, double beta, double* dst, size_t dst_step,
+                        int m_a, int n_a, int n_d, int flags)
+{
+    CALL_HAL(gemm64fc, cv_hal_gemm64fc, src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags)
+    callGemmImpl(src1, src1_step, src2, src2_step, alpha, src3, src3_step, beta, dst, dst_step, m_a, n_a, n_d, flags, CV_64FC2);
+}
+
+void cv::gemm( InputArray matA, InputArray matB, double alpha,
+           InputArray matC, double beta, OutputArray _matD, int flags )
+{
+#ifdef HAVE_CLAMDBLAS
+    CV_OCL_RUN(ocl::haveAmdBlas() && matA.dims() <= 2 && matB.dims() <= 2 && matC.dims() <= 2 && _matD.isUMat() &&
+        matA.cols() > 20 && matA.rows() > 20 && matB.cols() > 20, // since it works incorrect for small sizes
+        ocl_gemm_amdblas(matA, matB, alpha, matC, beta, _matD, flags))
+#endif
+
+#ifdef HAVE_OPENCL
+    CV_OCL_RUN(_matD.isUMat() && matA.dims() <= 2 && matB.dims() <= 2 && matC.dims() <= 2,
+               ocl_gemm(matA, matB, alpha, matC, beta, _matD, flags))
+#endif
+
+    Mat A = matA.getMat(), B = matB.getMat(), C = beta != 0.0 ? matC.getMat() : Mat();
+    Size a_size = A.size(), d_size;
+    int len = 0, type = A.type();
+
+    CV_Assert( type == B.type() && (type == CV_32FC1 || type == CV_64FC1 || type == CV_32FC2 || type == CV_64FC2) );
+
+    switch( flags & (GEMM_1_T|GEMM_2_T) )
+    {
+    case 0:
+        d_size = Size( B.cols, a_size.height );
+        len = B.rows;
+        CV_Assert( a_size.width == len );
+        break;
+    case 1:
+        d_size = Size( B.cols, a_size.width );
+        len = B.rows;
+        CV_Assert( a_size.height == len );
+        break;
+    case 2:
+        d_size = Size( B.rows, a_size.height );
+        len = B.cols;
+        CV_Assert( a_size.width == len );
+        break;
+    case 3:
+        d_size = Size( B.rows, a_size.width );
+        len = B.cols;
+        CV_Assert( a_size.height == len );
+        break;
+    }
+
+    if( !C.empty() )
+    {
+        CV_Assert( C.type() == type &&
+            (((flags&GEMM_3_T) == 0 && C.rows == d_size.height && C.cols == d_size.width) ||
+             ((flags&GEMM_3_T) != 0 && C.rows == d_size.width && C.cols == d_size.height)));
+    }
+
+    _matD.create( d_size.height, d_size.width, type );
+    Mat D = _matD.getMat();
+    if( (flags & GEMM_3_T) != 0 && C.data == D.data )
+    {
+        transpose( C, C );
+        flags &= ~GEMM_3_T;
+    }
+
+    Mat *DProxyPtr = &D, DProxy;
+    if( D.data == A.data || D.data == B.data )
+    {
+        DProxy = Mat(d_size.height, d_size.width, D.type());
+        DProxyPtr = &DProxy;
+    }
+
+    if( type == CV_32FC1 )
+        hal::gemm32f(A.ptr<float>(), A.step, B.ptr<float>(), B.step, static_cast<float>(alpha),
+                     C.ptr<float>(), C.step, static_cast<float>(beta),
+                     DProxyPtr->ptr<float>(), DProxyPtr->step,
+                     a_size.height, a_size.width, DProxyPtr->cols, flags);
+    else if( type == CV_64FC1 )
+        hal::gemm64f(A.ptr<double>(), A.step, B.ptr<double>(), B.step, alpha,
+                     C.ptr<double>(), C.step, beta,
+                     DProxyPtr->ptr<double>(), DProxyPtr->step,
+                     a_size.height, a_size.width, DProxyPtr->cols, flags);
+    else if( type == CV_32FC2 )
+        hal::gemm32fc(A.ptr<float>(), A.step, B.ptr<float>(), B.step, static_cast<float>(alpha),
+                      C.ptr<float>(), C.step, static_cast<float>(beta),
+                      DProxyPtr->ptr<float>(), DProxyPtr->step,
+                      a_size.height, a_size.width, DProxyPtr->cols, flags);
+    else
+    {
+        CV_Assert( type == CV_64FC2 );
+        hal::gemm64fc(A.ptr<double>(), A.step, B.ptr<double>(), B.step, alpha,
+                      C.ptr<double>(), C.step, beta,
+                      D.ptr<double>(), D.step,
+                      a_size.height, a_size.width, DProxyPtr->cols, flags);
+    }
+
+    if(DProxyPtr != &D)
+        DProxyPtr->copyTo(D);
 }
 
 /****************************************************************************************\
@@ -2304,7 +2444,7 @@ static bool ocl_scaleAdd( InputArray _src1, double alpha, InputArray _src2, Outp
     else
         k.args(src1arg, src2arg, dstarg, alpha);
 
-    size_t globalsize[2] = { dst.cols * cn / kercn, (dst.rows + rowsPerWI - 1) / rowsPerWI };
+    size_t globalsize[2] = { (size_t)dst.cols * cn / kercn, ((size_t)dst.rows + rowsPerWI - 1) / rowsPerWI };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -2414,7 +2554,7 @@ void cv::calcCovarMatrix( InputArray _src, OutputArray _covar, InputOutputArray 
         Mat _data(static_cast<int>(src.size()), size.area(), type);
 
         int i = 0;
-        for(std::vector<cv::Mat>::iterator each = src.begin(); each != src.end(); each++, i++ )
+        for(std::vector<cv::Mat>::iterator each = src.begin(); each != src.end(); ++each, ++i )
         {
             CV_Assert( (*each).size() == size && (*each).type() == type );
             Mat dataRow(size.height, size.width, type, _data.ptr(i));
@@ -2916,7 +3056,7 @@ dotProd_(const T* src1, const T* src2, int len)
 static double dotProd_8u(const uchar* src1, const uchar* src2, int len)
 {
     double r = 0;
-#if ARITHM_USE_IPP && 0
+#if ARITHM_USE_IPP && IPP_DISABLE_BLOCK
     CV_IPP_CHECK()
     {
         if (0 <= ippiDotProd_8u64f_C1R(src1, (int)(len*sizeof(src1[0])),
@@ -3131,7 +3271,7 @@ static double dotProd_16u(const ushort* src1, const ushort* src2, int len)
 
 static double dotProd_16s(const short* src1, const short* src2, int len)
 {
-#if (ARITHM_USE_IPP == 1)
+#if (ARITHM_USE_IPP == 1) && (IPP_VERSION_X100 != 900) // bug in IPP 9.0.0
     CV_IPP_CHECK()
     {
         double r = 0;

@@ -1,6 +1,8 @@
 #define __CL_ENABLE_EXCEPTIONS
+#define CL_USE_DEPRECATED_OPENCL_1_1_APIS /*let's give a chance for OpenCL 1.1 devices*/
 #include <CL/cl.hpp>
 
+#include <GLES2/gl2.h>
 #include <EGL/egl.h>
 
 #include <opencv2/core.hpp>
@@ -79,8 +81,9 @@ void dumpCLinfo()
 cl::Context theContext;
 cl::CommandQueue theQueue;
 cl::Program theProgB2B, theProgI2B, theProgI2I;
+bool haveOpenCL = false;
 
-void initCL()
+extern "C" void initCL()
 {
     dumpCLinfo();
 
@@ -100,6 +103,7 @@ void initCL()
 
     try
     {
+        haveOpenCL = false;
         cl::Platform p = cl::Platform::getDefault();
         std::string ext = p.getInfo<CL_PLATFORM_EXTENSIONS>();
         if(ext.find("cl_khr_gl_sharing") == std::string::npos)
@@ -124,6 +128,7 @@ void initCL()
             LOGD("OpenCV+OpenCL works OK!");
         else
             LOGE("Can't init OpenCV with OpenCL TAPI");
+        haveOpenCL = true;
     }
     catch(cl::Error& e)
     {
@@ -140,13 +145,20 @@ void initCL()
     LOGD("initCL completed");
 }
 
-void closeCL()
+extern "C" void closeCL()
 {
 }
 
 #define GL_TEXTURE_2D 0x0DE1
 void procOCL_I2I(int texIn, int texOut, int w, int h)
 {
+    LOGD("Processing OpenCL Direct (image2d)");
+    if(!haveOpenCL)
+    {
+        LOGE("OpenCL isn't initialized");
+        return;
+    }
+
     LOGD("procOCL_I2I(%d, %d, %d, %d)", texIn, texOut, w, h);
     cl::ImageGL imgIn (theContext, CL_MEM_READ_ONLY,  GL_TEXTURE_2D, 0, texIn);
     cl::ImageGL imgOut(theContext, CL_MEM_WRITE_ONLY, GL_TEXTURE_2D, 0, texOut);
@@ -177,10 +189,17 @@ void procOCL_I2I(int texIn, int texOut, int w, int h)
     LOGD("enqueueReleaseGLObjects() costs %d ms", getTimeInterval(t));
 }
 
-void procOCL_OCV(int tex, int w, int h)
+void procOCL_OCV(int texIn, int texOut, int w, int h)
 {
+    LOGD("Processing OpenCL via OpenCV");
+    if(!haveOpenCL)
+    {
+        LOGE("OpenCL isn't initialized");
+        return;
+    }
+
     int64_t t = getTimeMs();
-    cl::ImageGL imgIn (theContext, CL_MEM_READ_ONLY,  GL_TEXTURE_2D, 0, tex);
+    cl::ImageGL imgIn (theContext, CL_MEM_READ_ONLY,  GL_TEXTURE_2D, 0, texIn);
     std::vector < cl::Memory > images(1, imgIn);
     theQueue.enqueueAcquireGLObjects(&images);
     theQueue.finish();
@@ -197,7 +216,7 @@ void procOCL_OCV(int tex, int w, int h)
     LOGD("OpenCV processing costs %d ms", getTimeInterval(t));
 
     t = getTimeMs();
-    cl::ImageGL imgOut(theContext, CL_MEM_WRITE_ONLY, GL_TEXTURE_2D, 0, tex);
+    cl::ImageGL imgOut(theContext, CL_MEM_WRITE_ONLY, GL_TEXTURE_2D, 0, texOut);
     images.clear();
     images.push_back(imgOut);
     theQueue.enqueueAcquireGLObjects(&images);
@@ -210,4 +229,55 @@ void procOCL_OCV(int tex, int w, int h)
     theQueue.enqueueReleaseGLObjects(&images);
     cv::ocl::finish();
     LOGD("uploading results to texture costs %d ms", getTimeInterval(t));
+}
+
+void drawFrameProcCPU(int w, int h, int texOut)
+{
+    LOGD("Processing on CPU");
+    int64_t t;
+
+    // let's modify pixels in FBO texture in C++ code (on CPU)
+    static cv::Mat m;
+    m.create(h, w, CV_8UC4);
+
+    // read
+    t = getTimeMs();
+    // expecting FBO to be bound
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, m.data);
+    LOGD("glReadPixels() costs %d ms", getTimeInterval(t));
+
+   // modify
+    t = getTimeMs();
+    cv::Laplacian(m, m, CV_8U);
+    m *= 10;
+    LOGD("Laplacian() costs %d ms", getTimeInterval(t));
+
+    // write back
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texOut);
+    t = getTimeMs();
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, m.data);
+    LOGD("glTexSubImage2D() costs %d ms", getTimeInterval(t));
+}
+
+
+enum ProcMode {PROC_MODE_NO_PROC=0, PROC_MODE_CPU=1, PROC_MODE_OCL_DIRECT=2, PROC_MODE_OCL_OCV=3};
+
+extern "C" void processFrame(int tex1, int tex2, int w, int h, int mode)
+{
+    switch(mode)
+    {
+        //case PROC_MODE_NO_PROC:
+    case PROC_MODE_CPU:
+        drawFrameProcCPU(w, h, tex2);
+        break;
+    case PROC_MODE_OCL_DIRECT:
+        procOCL_I2I(tex1, tex2, w, h);
+        break;
+    case PROC_MODE_OCL_OCV:
+        procOCL_OCV(tex1, tex2, w, h);
+        break;
+    default:
+        LOGE("Unexpected processing mode: %d", mode);
+    }
 }

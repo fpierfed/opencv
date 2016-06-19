@@ -1010,7 +1010,7 @@ pyrUp_( const Mat& _src, Mat& _dst, int)
         for( ; sy <= y + 1; sy++ )
         {
             WT* row = buf + ((sy - sy0) % PU_SZ)*bufstep;
-            int _sy = borderInterpolate(sy*2, dsize.height, BORDER_REFLECT_101)/2;
+            int _sy = borderInterpolate(sy*2, ssize.height*2, BORDER_REFLECT_101)/2;
             const T* src = _src.ptr<T>(_sy);
 
             if( ssize.width == cn )
@@ -1031,6 +1031,11 @@ pyrUp_( const Mat& _src, Mat& _dst, int)
                 t0 = src[sx - cn] + src[sx]*7;
                 t1 = src[sx]*8;
                 row[dx] = t0; row[dx + cn] = t1;
+
+                if (dsize.width > ssize.width*2)
+                {
+                    row[(_dst.cols-1) + x] = row[dx + cn];
+                }
             }
 
             for( x = cn; x < ssize.width - cn; x++ )
@@ -1055,6 +1060,17 @@ pyrUp_( const Mat& _src, Mat& _dst, int)
             T t1 = castOp((row1[x] + row2[x])*4);
             T t0 = castOp(row0[x] + row1[x]*6 + row2[x]);
             dst1[x] = t1; dst0[x] = t0;
+        }
+    }
+
+    if (dsize.height > ssize.height*2)
+    {
+        T* dst0 = _dst.ptr<T>(ssize.height*2-2);
+        T* dst2 = _dst.ptr<T>(ssize.height*2);
+
+        for(x = 0; x < dsize.width ; x++ )
+        {
+            dst2[x] = dst0[x];
         }
     }
 }
@@ -1107,8 +1123,8 @@ static bool ocl_pyrDown( InputArray _src, OutputArray _dst, const Size& _dsz, in
 
     k.args(ocl::KernelArg::ReadOnly(src), ocl::KernelArg::WriteOnly(dst));
 
-    size_t localThreads[2]  = { local_size/kercn, 1 };
-    size_t globalThreads[2] = { (src.cols + (kercn-1))/kercn, (dst.rows + 1) / 2 };
+    size_t localThreads[2]  = { (size_t)local_size/kercn, 1 };
+    size_t globalThreads[2] = { ((size_t)src.cols + (kercn-1))/kercn, ((size_t)dst.rows + 1) / 2 };
     return k.run(2, globalThreads, localThreads, false);
 }
 
@@ -1144,8 +1160,8 @@ static bool ocl_pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int 
             doubleSupport ? " -D DOUBLE_SUPPORT" : "",
             ocl::typeToStr(depth), channels, local_size
     );
-    size_t globalThreads[2] = { dst.cols, dst.rows };
-    size_t localThreads[2] = { local_size, local_size };
+    size_t globalThreads[2] = { (size_t)dst.cols, (size_t)dst.rows };
+    size_t localThreads[2] = { (size_t)local_size, (size_t)local_size };
     ocl::Kernel k;
     if (ocl::Device::getDefault().isIntel() && channels == 1)
     {
@@ -1171,7 +1187,7 @@ namespace cv
 {
 static bool ipp_pyrdown( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
 {
-#if IPP_VERSION_X100 >= 801 && 0
+#if IPP_VERSION_X100 >= 810 && IPP_DISABLE_BLOCK
     Size dsz = _dsz.area() == 0 ? Size((_src.cols() + 1)/2, (_src.rows() + 1)/2) : _dsz;
     bool isolated = (borderType & BORDER_ISOLATED) != 0;
     int borderTypeNI = borderType & ~BORDER_ISOLATED;
@@ -1276,7 +1292,7 @@ namespace cv
 {
 static bool ipp_pyrup( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
 {
-#if IPP_VERSION_X100 >= 801 && 0
+#if IPP_VERSION_X100 >= 810 && IPP_DISABLE_BLOCK
     Size sz = _src.dims() <= 2 ? _src.size() : Size();
     Size dsz = _dsz.area() == 0 ? Size(_src.cols()*2, _src.rows()*2) : _dsz;
 
@@ -1375,12 +1391,12 @@ void cv::pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int borderT
 }
 
 
-#if 0 //#ifdef HAVE_IPP
+#ifdef HAVE_IPP
 namespace cv
 {
 static bool ipp_buildpyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, int borderType )
 {
-#if IPP_VERSION_X100 >= 801 && 0
+#if IPP_VERSION_X100 >= 810 && IPP_DISABLE_BLOCK
     Mat src = _src.getMat();
     _dst.create( maxlevel + 1, 1, 0 );
     _dst.getMatRef(0) = src;
@@ -1508,13 +1524,8 @@ void cv::buildPyramid( InputArray _src, OutputArrayOfArrays _dst, int maxlevel, 
 
     int i=1;
 
-#if (IPP_VERSION_X100 >= 801 && 0)
-    bool isolated = (borderType & BORDER_ISOLATED) != 0;
-    int borderTypeNI = borderType & ~BORDER_ISOLATED;
-    CV_IPP_RUN(((IPP_VERSION_X100 >= 801 && 0) && (borderTypeNI == BORDER_DEFAULT && (!_src.isSubmatrix() || isolated))),
+    CV_IPP_RUN(((IPP_VERSION_X100 >= 810 && IPP_DISABLE_BLOCK) && ((borderType & ~BORDER_ISOLATED) == BORDER_DEFAULT && (!_src.isSubmatrix() || ((borderType & BORDER_ISOLATED) != 0)))),
         ipp_buildpyramid( _src,  _dst,  maxlevel,  borderType));
-#endif
-
 
     for( ; i <= maxlevel; i++ )
         pyrDown( _dst.getMatRef(i-1), _dst.getMatRef(i), Size(), borderType );

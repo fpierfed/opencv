@@ -190,6 +190,7 @@ bool CvCascadeClassifier::train( const string _cascadeDirName,
     cascadeParams.printAttrs();
     stageParams->printAttrs();
     featureParams->printAttrs();
+    cout << "Number of unique features given windowSize [" << _cascadeParams.winSize.width << "," << _cascadeParams.winSize.height << "] : " << featureEvaluator->getNumFeatures() << "" << endl;
 
     int startNumStages = (int)stageClassifiers.size();
     if ( startNumStages > 1 )
@@ -206,7 +207,7 @@ bool CvCascadeClassifier::train( const string _cascadeDirName,
         cout << endl << "===== TRAINING " << i << "-stage =====" << endl;
         cout << "<BEGIN" << endl;
 
-        if ( !updateTrainingSet( tempLeafFARate ) )
+        if ( !updateTrainingSet( requiredLeafFARate, tempLeafFARate ) )
         {
             cout << "Train dataset for temp stage can not be filled. "
                     "Branch training terminated." << endl;
@@ -289,7 +290,7 @@ int CvCascadeClassifier::predict( int sampleIdx )
 {
     CV_DbgAssert( sampleIdx < numPos + numNeg );
     for (vector< Ptr<CvCascadeBoost> >::iterator it = stageClassifiers.begin();
-        it != stageClassifiers.end(); it++ )
+        it != stageClassifiers.end();++it )
     {
         if ( (*it)->predict( sampleIdx ) == 0.f )
             return 0;
@@ -297,17 +298,17 @@ int CvCascadeClassifier::predict( int sampleIdx )
     return 1;
 }
 
-bool CvCascadeClassifier::updateTrainingSet( double& acceptanceRatio)
+bool CvCascadeClassifier::updateTrainingSet( double minimumAcceptanceRatio, double& acceptanceRatio)
 {
     int64 posConsumed = 0, negConsumed = 0;
     imgReader.restart();
-    int posCount = fillPassedSamples( 0, numPos, true, posConsumed );
+    int posCount = fillPassedSamples( 0, numPos, true, 0, posConsumed );
     if( !posCount )
         return false;
     cout << "POS count : consumed   " << posCount << " : " << (int)posConsumed << endl;
 
     int proNumNeg = cvRound( ( ((double)numNeg) * ((double)posCount) ) / numPos ); // apply only a fraction of negative samples. double is required since overflow is possible
-    int negCount = fillPassedSamples( posCount, proNumNeg, false, negConsumed );
+    int negCount = fillPassedSamples( posCount, proNumNeg, false, minimumAcceptanceRatio, negConsumed );
     if ( !negCount )
         return false;
 
@@ -317,7 +318,7 @@ bool CvCascadeClassifier::updateTrainingSet( double& acceptanceRatio)
     return true;
 }
 
-int CvCascadeClassifier::fillPassedSamples( int first, int count, bool isPositive, int64& consumed )
+int CvCascadeClassifier::fillPassedSamples( int first, int count, bool isPositive, double minimumAcceptanceRatio, int64& consumed )
 {
     int getcount = 0;
     Mat img(cascadeParams.winSize, CV_8UC1);
@@ -325,6 +326,9 @@ int CvCascadeClassifier::fillPassedSamples( int first, int count, bool isPositiv
     {
         for( ; ; )
         {
+            if( consumed != 0 && ((double)getcount+1)/(double)(int64)consumed <= minimumAcceptanceRatio )
+                return getcount;
+
             bool isGetImg = isPositive ? imgReader.getPos( img ) :
                                            imgReader.getNeg( img );
             if( !isGetImg )
@@ -332,7 +336,7 @@ int CvCascadeClassifier::fillPassedSamples( int first, int count, bool isPositiv
             consumed++;
 
             featureEvaluator->setImage( img, isPositive ? 1 : 0, i );
-            if( predict( i ) == 1.0F )
+            if( predict( i ) == 1 )
             {
                 getcount++;
                 printf("%s current samples: %d\r", isPositive ? "POS":"NEG", getcount);
@@ -361,7 +365,7 @@ void CvCascadeClassifier::writeStages( FileStorage &fs, const Mat& featureMap ) 
     int i = 0;
     fs << CC_STAGES << "[";
     for( vector< Ptr<CvCascadeBoost> >::const_iterator it = stageClassifiers.begin();
-        it != stageClassifiers.end(); it++, i++ )
+        it != stageClassifiers.end();++it, ++i )
     {
         sprintf( cmnt, "stage %d", i );
         cvWriteComment( fs.fs, cmnt, 0 );
@@ -553,7 +557,7 @@ void CvCascadeClassifier::getUsedFeaturesIdxMap( Mat& featureMap )
     featureMap.setTo(Scalar(-1));
 
     for( vector< Ptr<CvCascadeBoost> >::const_iterator it = stageClassifiers.begin();
-        it != stageClassifiers.end(); it++ )
+        it != stageClassifiers.end();++it )
         (*it)->markUsedFeaturesInMap( featureMap );
 
     for( int fi = 0, idx = 0; fi < varCount; fi++ )

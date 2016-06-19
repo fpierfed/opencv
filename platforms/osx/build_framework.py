@@ -60,6 +60,7 @@ def build_opencv(srcroot, buildroot, target, arch):
     # for some reason, if you do not specify CMAKE_BUILD_TYPE, it puts libs to
     # "RELEASE" rather than "Release"
     cmakeargs = ('-GXcode ' +
+                 '-DAPPLE_FRAMEWORK=ON ' +
                  '-DCMAKE_BUILD_TYPE=Release ' +
                  '-DBUILD_SHARED_LIBS=OFF ' +
                  '-DBUILD_DOCS=OFF ' +
@@ -165,7 +166,7 @@ def build_framework(srcroot, dstroot):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        print 'Usage:\n\t./build_framework.py <outputdir>\n\n'
+        print('Usage:\n\t./build_framework.py <outputdir>\n\n')
         sys.exit(0)
 
     here = os.path.dirname(os.path.abspath(__file__))

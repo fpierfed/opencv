@@ -9,7 +9,7 @@ static void help()
 {
     cout << "\n This program demonstrates how to detect compute and match ORB BRISK and AKAZE descriptors \n"
         "Usage: \n"
-        "  ./matchmethod_orb_akaze_brisk <image1(../data/basketball1.png as default)> <image2(../data/basketball2.png as default)>\n"
+        "  ./matchmethod_orb_akaze_brisk --image1=<image1(../data/basketball1.png as default)> --image2=<image2(../data/basketball2.png as default)>\n"
         "Press a key when image window is active to change algorithm or descriptor";
 }
 
@@ -20,7 +20,6 @@ int main(int argc, char *argv[])
     vector<String> typeDesc;
     vector<String> typeAlgoMatch;
     vector<String> fileName;
-    help();
     // This descriptor are going to be detect and compute
     typeDesc.push_back("AKAZE-DESCRIPTOR_KAZE_UPRIGHT");    // see http://docs.opencv.org/trunk/d8/d30/classcv_1_1AKAZE.html
     typeDesc.push_back("AKAZE");    // see http://docs.opencv.org/trunk/d8/d30/classcv_1_1AKAZE.html
@@ -31,21 +30,17 @@ int main(int argc, char *argv[])
     typeAlgoMatch.push_back("BruteForce-L1");
     typeAlgoMatch.push_back("BruteForce-Hamming");
     typeAlgoMatch.push_back("BruteForce-Hamming(2)");
-    if (argc==1)
-    {
-        fileName.push_back("../data/basketball1.png");
-        fileName.push_back("../data/basketball2.png");
-    }
-    else if (argc==3)
-    {
-        fileName.push_back(argv[1]);
-        fileName.push_back(argv[2]);
-    }
-    else
+    cv::CommandLineParser parser(argc, argv,
+        "{ @image1 | ../data/basketball1.png | }"
+        "{ @image2 | ../data/basketball2.png | }"
+        "{help h ||}");
+    if (parser.has("help"))
     {
         help();
-        return(0);
+        return 0;
     }
+    fileName.push_back(parser.get<string>(0));
+    fileName.push_back(parser.get<string>(1));
     Mat img1 = imread(fileName[0], IMREAD_GRAYSCALE);
     Mat img2 = imread(fileName[1], IMREAD_GRAYSCALE);
     if (img1.rows*img1.cols <= 0)
@@ -64,7 +59,7 @@ int main(int argc, char *argv[])
 
     // Descriptor loop
     vector<String>::iterator itDesc;
-    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); itDesc++)
+    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); ++itDesc)
     {
         Ptr<DescriptorMatcher> descriptorMatcher;
         // Match between img1 and img2
@@ -95,7 +90,7 @@ int main(int argc, char *argv[])
             // or detect and compute descriptors in one step
             b->detectAndCompute(img2, Mat(),keyImg2, descImg2,false);
             // Match method loop
-            for (itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); itMatcher++){
+            for (itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); ++itMatcher){
                 descriptorMatcher = DescriptorMatcher::create(*itMatcher);
                 if ((*itMatcher == "BruteForce-Hamming" || *itMatcher == "BruteForce-Hamming(2)") && (b->descriptorType() == CV_32F || b->defaultNorm() <= NORM_L2SQR))
                 {
@@ -140,7 +135,7 @@ int main(int argc, char *argv[])
                     cout << "in img1\tin img2\n";
                     // Use to compute distance between keyPoint matches and to evaluate match algorithm
                     double cumSumDist2=0;
-                    for (it = bestMatches.begin(); it != bestMatches.end(); it++)
+                    for (it = bestMatches.begin(); it != bestMatches.end(); ++it)
                     {
                         cout << it->queryIdx << "\t" <<  it->trainIdx << "\t"  <<  it->distance << "\n";
                         Point2d p=keyImg1[it->queryIdx].pt-keyImg2[it->trainIdx].pt;
@@ -170,15 +165,15 @@ int main(int argc, char *argv[])
     int i=0;
     cout << "Cumulative distance between keypoint match for different algorithm and feature detector \n\t";
     cout << "We cannot say which is the best but we can say results are differents! \n\t";
-    for (vector<String>::iterator itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); itMatcher++)
+    for (vector<String>::iterator itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); ++itMatcher)
     {
         cout<<*itMatcher<<"\t";
     }
     cout << "\n";
-    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); itDesc++)
+    for (itDesc = typeDesc.begin(); itDesc != typeDesc.end(); ++itDesc)
     {
         cout << *itDesc << "\t";
-        for (vector<String>::iterator itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); itMatcher++, i++)
+        for (vector<String>::iterator itMatcher = typeAlgoMatch.begin(); itMatcher != typeAlgoMatch.end(); ++itMatcher, ++i)
         {
             cout << desMethCmp[i]<<"\t";
         }

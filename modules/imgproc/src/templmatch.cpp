@@ -72,7 +72,7 @@ static bool extractFirstChannel_32F(InputArray _image, OutputArray _result, int 
     UMat result = _result.getUMat();
 
 
-    size_t globalsize[2] = {result.cols, (result.rows+pxPerWIy-1)/pxPerWIy};
+    size_t globalsize[2] = {(size_t)result.cols, ((size_t)result.rows+pxPerWIy-1)/pxPerWIy};
     return k.args(ocl::KernelArg::ReadOnlyNoSize(image), ocl::KernelArg::WriteOnly(result)).run( 2, globalsize, NULL, false);
 }
 
@@ -286,7 +286,7 @@ static bool matchTemplateNaive_CCORR(InputArray _image, InputArray _templ, Outpu
     k.args(ocl::KernelArg::ReadOnlyNoSize(image), ocl::KernelArg::ReadOnly(templ),
            ocl::KernelArg::WriteOnly(result));
 
-    size_t globalsize[2] = { (result.cols+pxPerWIx-1)/pxPerWIx, result.rows};
+    size_t globalsize[2] = { ((size_t)result.cols+pxPerWIx-1)/pxPerWIx, (size_t)result.rows};
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -338,7 +338,7 @@ static bool matchTemplate_CCORR_NORMED(InputArray _image, InputArray _templ, Out
     k.args(ocl::KernelArg::ReadOnlyNoSize(image_sqsums), ocl::KernelArg::ReadWrite(result),
            templ.rows, templ.cols, ocl::KernelArg::PtrReadOnly(templ_sqsum));
 
-    size_t globalsize[2] = { result.cols, result.rows };
+    size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -363,7 +363,7 @@ static bool matchTemplateNaive_SQDIFF(InputArray _image, InputArray _templ, Outp
     k.args(ocl::KernelArg::ReadOnlyNoSize(image), ocl::KernelArg::ReadOnly(templ),
            ocl::KernelArg::WriteOnly(result));
 
-    size_t globalsize[2] = { result.cols, result.rows };
+    size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -396,7 +396,7 @@ static bool matchTemplate_SQDIFF(InputArray _image, InputArray _templ, OutputArr
         k.args(ocl::KernelArg::ReadOnlyNoSize(image_sqsums), ocl::KernelArg::ReadWrite(result),
            templ.rows, templ.cols, ocl::KernelArg::PtrReadOnly(templ_sqsum));
 
-        size_t globalsize[2] = { result.cols, result.rows };
+        size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
 
         return k.run(2, globalsize, NULL, false);
     }
@@ -427,7 +427,7 @@ static bool matchTemplate_SQDIFF_NORMED(InputArray _image, InputArray _templ, Ou
     k.args(ocl::KernelArg::ReadOnlyNoSize(image_sqsums), ocl::KernelArg::ReadWrite(result),
            templ.rows, templ.cols, ocl::KernelArg::PtrReadOnly(templ_sqsum));
 
-    size_t globalsize[2] = { result.cols, result.rows };
+    size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
 
     return k.run(2, globalsize, NULL, false);
 }
@@ -465,7 +465,7 @@ static bool matchTemplate_CCOEFF(InputArray _image, InputArray _templ, OutputArr
 
        k.args(ocl::KernelArg::ReadOnlyNoSize(image_sums), ocl::KernelArg::ReadWrite(result), templ.rows, templ.cols, templ_sum);    }
 
-    size_t globalsize[2] = { result.cols, result.rows };
+    size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -533,7 +533,7 @@ static bool matchTemplate_CCOEFF_NORMED(InputArray _image, InputArray _templ, Ou
                    ocl::KernelArg::ReadWrite(result), templ.rows, templ.cols, scale,
                    templ_sum, templ_sqsum_sum);    }
 
-    size_t globalsize[2] = { result.cols, result.rows };
+    size_t globalsize[2] = { (size_t)result.cols, (size_t)result.rows };
     return k.run(2, globalsize, NULL, false);
 }
 
@@ -632,6 +632,8 @@ static bool ipp_sqrDistance(const Mat& src, const Mat& tpl, Mat& dst)
 
 #endif
 
+#include "opencv2/core/hal/hal.hpp"
+
 void crossCorr( const Mat& img, const Mat& _templ, Mat& corr,
                 Size corrsize, int ctype,
                 Point anchor, double delta, int borderType )
@@ -698,6 +700,8 @@ void crossCorr( const Mat& img, const Mat& _templ, Mat& corr,
 
     buf.resize(bufSize);
 
+    Ptr<hal::DFT2D> c = hal::DFT2D::create(dftsize.width, dftsize.height, dftTempl.depth(), 1, 1, CV_HAL_DFT_IS_INPLACE, templ.rows);
+
     // compute DFT of each template plane
     for( k = 0; k < tcn; k++ )
     {
@@ -721,7 +725,7 @@ void crossCorr( const Mat& img, const Mat& _templ, Mat& corr,
             Mat part(dst, Range(0, templ.rows), Range(templ.cols, dst.cols));
             part = Scalar::all(0);
         }
-        dft(dst, dst, 0, templ.rows);
+        c->apply(dst.data, (int)dst.step, dst.data, (int)dst.step);
     }
 
     int tileCountX = (corr.cols + blocksize.width - 1)/blocksize.width;
@@ -739,6 +743,12 @@ void crossCorr( const Mat& img, const Mat& _templ, Mat& corr,
                        roiofs.x, wholeSize.width-img.cols-roiofs.x);
     }
     borderType |= BORDER_ISOLATED;
+
+    Ptr<hal::DFT2D> cF, cR;
+    int f = CV_HAL_DFT_IS_INPLACE;
+    int f_inv = f | CV_HAL_DFT_INVERSE | CV_HAL_DFT_SCALE;
+    cF = hal::DFT2D::create(dftsize.width, dftsize.height, maxDepth, 1, 1, f, blocksize.height + templ.rows - 1);
+    cR = hal::DFT2D::create(dftsize.width, dftsize.height, maxDepth, 1, 1, f_inv, blocksize.height);
 
     // calculate correlation by blocks
     for( i = 0; i < tileCount; i++ )
@@ -777,11 +787,19 @@ void crossCorr( const Mat& img, const Mat& _templ, Mat& corr,
                 copyMakeBorder(dst1, dst, y1-y0, dst.rows-dst1.rows-(y1-y0),
                                x1-x0, dst.cols-dst1.cols-(x1-x0), borderType);
 
-            dft( dftImg, dftImg, 0, dsz.height );
+            if (bsz.height == blocksize.height)
+                cF->apply(dftImg.data, (int)dftImg.step, dftImg.data, (int)dftImg.step);
+            else
+                dft( dftImg, dftImg, 0, dsz.height );
+
             Mat dftTempl1(dftTempl, Rect(0, tcn > 1 ? k*dftsize.height : 0,
                                          dftsize.width, dftsize.height));
             mulSpectrums(dftImg, dftTempl1, dftImg, 0, true);
-            dft( dftImg, dftImg, DFT_INVERSE + DFT_SCALE, bsz.height );
+
+            if (bsz.height == blocksize.height)
+                cR->apply(dftImg.data, (int)dftImg.step, dftImg.data, (int)dftImg.step);
+            else
+                dft( dftImg, dftImg, DFT_INVERSE + DFT_SCALE, bsz.height );
 
             src = dftImg(Rect(0, 0, bsz.width, bsz.height));
 
