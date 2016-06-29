@@ -40,6 +40,7 @@
 //
 //M*/
 
+#if defined __clang__
 #import <AppKit/AppKit.h>
 #import <Accelerate/Accelerate.h>
 #import <AVFoundation/AVFoundation.h>
@@ -78,3 +79,4 @@ void NSImageToMat(const NSImage* image, cv::Mat& m, bool alphaExist) {
                      format: @"Unable to read image."];
     }
 }
+#endif
