@@ -45,6 +45,9 @@ class mser_test(NewOpenCVTests):
             blur = int(np.random.rand(1,1)*2) != 0
             thresh = thresharr[int(np.random.rand(1,1)*5)]
             src0 = img if use_big_image else np.array(smallImg).astype('uint8')
+            if src0 is None:
+                print('Ops! src is None')
+                continue
             src = src0.copy()
 
             kMinArea = 256 if use_big_image else 10
