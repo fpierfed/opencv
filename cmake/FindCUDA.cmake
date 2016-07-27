@@ -1100,9 +1100,9 @@ macro(CUDA_WRAP_SRCS cuda_target format generated_files)
   set(generated_extension ${CMAKE_${CUDA_C_OR_CXX}_OUTPUT_EXTENSION})
 
   if(CUDA_64_BIT_DEVICE_CODE)
-    set(nvcc_flags ${nvcc_flags} -m64)
+    set(nvcc_flags ${nvcc_flags} -m64 -lineinfo)
   else()
-    set(nvcc_flags ${nvcc_flags} -m32)
+    set(nvcc_flags ${nvcc_flags} -m32 -lineinfo)
   endif()
 
   if(CUDA_TARGET_CPU_ARCH AND CUDA_VERSION VERSION_LESS "7.0")
