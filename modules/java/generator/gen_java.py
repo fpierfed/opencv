@@ -14,7 +14,7 @@ class_ignore_list = (
     #core
     "FileNode", "FileStorage", "KDTree", "KeyPoint", "DMatch",
     #features2d
-    "SimpleBlobDetector", "FlannBasedMatcher", "DescriptorMatcher"
+    "SimpleBlobDetector"
 )
 
 const_ignore_list = (
@@ -207,6 +207,7 @@ type_dict = {
     "vector_KeyPoint" : { "j_type" : "MatOfKeyPoint", "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<KeyPoint> %(n)s", "suffix" : "J" },
     "vector_DMatch"   : { "j_type" : "MatOfDMatch", "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<DMatch> %(n)s", "suffix" : "J" },
     "vector_Rect"     : { "j_type" : "MatOfRect",   "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<Rect> %(n)s", "suffix" : "J" },
+    "vector_Rect2d"     : { "j_type" : "MatOfRect2d",   "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<Rect2d> %(n)s", "suffix" : "J" },
     "vector_uchar"    : { "j_type" : "MatOfByte",   "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<uchar> %(n)s", "suffix" : "J" },
     "vector_char"     : { "j_type" : "MatOfByte",   "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<char> %(n)s", "suffix" : "J" },
     "vector_int"      : { "j_type" : "MatOfInt",    "jn_type" : "long", "jni_type" : "jlong", "jni_var" : "std::vector<int> %(n)s", "suffix" : "J" },
@@ -261,6 +262,9 @@ type_dict = {
     "Rect"    : { "j_type" : "Rect",  "jn_args" : (("int", ".x"), ("int", ".y"), ("int", ".width"), ("int", ".height")),
                   "jni_var" : "Rect %(n)s(%(n)s_x, %(n)s_y, %(n)s_width, %(n)s_height)", "jni_type" : "jdoubleArray",
                   "suffix" : "IIII"},
+    "Rect2d"    : { "j_type" : "Rect2d",  "jn_args" : (("double", ".x"), ("double", ".y"), ("double", ".width"), ("double", ".height")),
+    "jni_var" : "Rect %(n)s(%(n)s_x, %(n)s_y, %(n)s_width, %(n)s_height)", "jni_type" : "jdoubleArray",
+        "suffix" : "DDDD"},
     "Size"    : { "j_type" : "Size",  "jn_args" : (("double", ".width"), ("double", ".height")),
                   "jni_var" : "Size %(n)s((int)%(n)s_width, (int)%(n)s_height)", "jni_type" : "jdoubleArray",
                   "suffix" : "DD"},
@@ -783,6 +787,7 @@ class ClassInfo(GeneralInfo):
         self.imports = set()
         self.props= []
         self.jname = self.name
+        self.smart = None # True if class stores Ptr<T>* instead of T* in nativeObj field
         self.j_code = None # java code stream
         self.jn_code = None # jni code stream
         self.cpp_code = None # cpp code stream
@@ -795,7 +800,7 @@ class ClassInfo(GeneralInfo):
             self.base = re.sub(r"^.*:", "", decl[1].split(",")[0]).strip().replace(self.jname, "")
 
     def __repr__(self):
-        return Template("CLASS $namespace.$classpath.$name : $base").substitute(**self.__dict__)
+        return Template("CLASS $namespace::$classpath.$name : $base").substitute(**self.__dict__)
 
     def getAllImports(self, module):
         return ["import %s;" % c for c in sorted(self.imports) if not c.startswith('org.opencv.'+module)]
@@ -807,6 +812,8 @@ class ClassInfo(GeneralInfo):
             self.imports.add("java.util.List")
             self.imports.add("java.util.ArrayList")
             self.addImports(ctype.replace('vector_vector', 'vector'))
+        elif ctype.startswith('Feature2D'):
+            self.imports.add("org.opencv.features2d.Feature2D")
         elif ctype.startswith('vector'):
             self.imports.add("org.opencv.core.Mat")
             self.imports.add('java.util.ArrayList')
@@ -822,7 +829,7 @@ class ClassInfo(GeneralInfo):
                 j_type = type_dict[ctype]['j_type']
             elif ctype in ("Algorithm"):
                 j_type = ctype
-            if j_type in ( "CvType", "Mat", "Point", "Point3", "Range", "Rect", "RotatedRect", "Scalar", "Size", "TermCriteria", "Algorithm" ):
+            if j_type in ( "CvType", "Mat", "Point", "Point3", "Range", "Rect", "Rect2d", "RotatedRect", "Scalar", "Size", "TermCriteria", "Algorithm" ):
                 self.imports.add("org.opencv.core." + j_type)
             if j_type == 'String':
                 self.imports.add("java.lang.String")
@@ -992,9 +999,9 @@ class JavaWrapperGenerator(object):
         if classinfo.base:
             classinfo.addImports(classinfo.base)
         type_dict["Ptr_"+name] = \
-            { "j_type" : name,
+            { "j_type" : classinfo.jname,
               "jn_type" : "long", "jn_args" : (("__int64", ".nativeObj"),),
-              "jni_name" : "Ptr<"+name+">(("+classinfo.fullName(isCPP=True)+"*)%(n)s_nativeObj)", "jni_type" : "jlong",
+              "jni_name" : "Ptr<"+classinfo.fullName(isCPP=True)+">(("+classinfo.fullName(isCPP=True)+"*)%(n)s_nativeObj)", "jni_type" : "jlong",
               "suffix" : "J" }
         logging.info('ok: class %s, name: %s, base: %s', classinfo, name, classinfo.base)
 
@@ -1037,7 +1044,7 @@ class JavaWrapperGenerator(object):
         f.write(buf)
         f.close()
 
-    def gen(self, srcfiles, module, output_path):
+    def gen(self, srcfiles, module, output_path, common_headers):
         self.clear()
         self.module = module
         self.Module = module.capitalize()
@@ -1048,6 +1055,9 @@ class JavaWrapperGenerator(object):
 
         # scan the headers and build more descriptive maps of classes, consts, functions
         includes = [];
+        for hdr in common_headers:
+            logging.info("\n===== Common header : %s =====", hdr)
+            includes.append('#include "' + hdr + '"')
         for hdr in srcfiles:
             decls = parser.parse(hdr)
             self.namespaces = parser.namespaces
@@ -1055,6 +1065,8 @@ class JavaWrapperGenerator(object):
             logging.info("Namespaces: %s", parser.namespaces)
             if decls:
                 includes.append('#include "' + hdr + '"')
+            else:
+                logging.info("Ignore header: %s", hdr)
             for decl in decls:
                 logging.info("\n--- Incoming ---\n%s", pformat(decl, 4))
                 name = decl[0]
@@ -1153,6 +1165,7 @@ class JavaWrapperGenerator(object):
 
         # java args
         args = fi.args[:] # copy
+        j_signatures=[]
         suffix_counter = int(ci.methods_suffixes.get(fi.jname, -1))
         while True:
             suffix_counter += 1
@@ -1231,6 +1244,25 @@ class JavaWrapperGenerator(object):
                                 i += 1
                             j_epilogue.append( "if("+a.name+"!=null){ " + "; ".join(set_vals) + "; } ")
 
+            # calculate java method signature to check for uniqueness
+            j_args = []
+            for a in args:
+                if not a.ctype: #hidden
+                    continue
+                jt = type_dict[a.ctype]["j_type"]
+                if a.out and a.ctype in ('bool', 'int', 'long', 'float', 'double'):
+                    jt += '[]'
+                j_args.append( jt + ' ' + a.name )
+            j_signature = type_dict[fi.ctype]["j_type"] + " " + \
+                fi.jname + "(" + ", ".join(j_args) + ")"
+            logging.info("java: " + j_signature)
+
+            if(j_signature in j_signatures):
+                if args:
+                    pop(args)
+                    continue
+                else:
+                    break
 
             # java part:
             # private java NATIVE method decl
@@ -1295,15 +1327,6 @@ class JavaWrapperGenerator(object):
             if fi.classname:
                 static = fi.static
 
-            j_args = []
-            for a in args:
-                if not a.ctype: #hidden
-                    continue
-                jt = type_dict[a.ctype]["j_type"]
-                if a.out and a.ctype in ('bool', 'int', 'long', 'float', 'double'):
-                    jt += '[]'
-                j_args.append( jt + ' ' + a.name )
-
             j_code.write( Template(\
 """    public $static $j_type $j_name($j_args)
     {
@@ -1348,7 +1371,7 @@ class JavaWrapperGenerator(object):
                 ret = "return (jlong) new %s(_retval_);" % self.fullTypeName(fi.ctype)
             elif fi.ctype.startswith('Ptr_'):
                 c_prologue.append("typedef Ptr<%s> %s;" % (self.fullTypeName(fi.ctype[4:]), fi.ctype))
-                ret = "%(ctype)s* curval = new %(ctype)s(_retval_);return (jlong)curval->get();" % { 'ctype':fi.ctype }
+                ret = "return (jlong)(new %(ctype)s(_retval_));" % { 'ctype':fi.ctype }
             elif self.isWrapped(ret_type): # pointer to wrapped class:
                 ret = "return (jlong) _retval_;"
             elif type_dict[fi.ctype]["jni_type"] == "jdoubleArray":
@@ -1379,10 +1402,10 @@ class JavaWrapperGenerator(object):
                 elif fi.static:
                     cvname = fi.fullName(isCPP=True)
                 else:
-                    cvname = ("me->" if  not self.isSmartClass(fi.classname) else "(*me)->") + name
+                    cvname = ("me->" if  not self.isSmartClass(ci) else "(*me)->") + name
                     c_prologue.append(\
                         "%(cls)s* me = (%(cls)s*) self; //TODO: check for NULL" \
-                            % { "cls" : self.smartWrap(fi.classname, fi.fullClass(isCPP=True))} \
+                            % { "cls" : self.smartWrap(ci, fi.fullClass(isCPP=True))} \
                     )
             cvargs = []
             for a in args:
@@ -1407,6 +1430,8 @@ class JavaWrapperGenerator(object):
             clazz = ci.jname
             cpp_code.write ( Template( \
 """
+${namespace}
+
 JNIEXPORT $rtype JNICALL Java_org_opencv_${module}_${clazz}_$fname ($argst);
 
 JNIEXPORT $rtype JNICALL Java_org_opencv_${module}_${clazz}_$fname
@@ -1441,7 +1466,11 @@ JNIEXPORT $rtype JNICALL Java_org_opencv_${module}_${clazz}_$fname
         cvargs = ", ".join(cvargs), \
         default = default, \
         retval = retval, \
+        namespace = ('using namespace ' + ci.namespace.replace('.', '::') + ';') if ci.namespace else ''
     ) )
+
+            # adding method signature to dictionarry
+            j_signatures.append(j_signature)
 
             # processing args with default values
             if not args or not args[-1].defval:
@@ -1522,7 +1551,7 @@ JNIEXPORT void JNICALL Java_org_opencv_%(module)s_%(j_cls)s_delete
     delete (%(cls)s*) self;
 }
 
-""" % {"module" : module.replace('_', '_1'), "cls" : self.smartWrap(ci.name, ci.fullName(isCPP=True)), "j_cls" : ci.jname.replace('_', '_1')}
+""" % {"module" : module.replace('_', '_1'), "cls" : self.smartWrap(ci, ci.fullName(isCPP=True)), "j_cls" : ci.jname.replace('_', '_1')}
             )
 
     def getClass(self, classname):
@@ -1532,17 +1561,31 @@ JNIEXPORT void JNICALL Java_org_opencv_%(module)s_%(j_cls)s_delete
         name = classname or self.Module
         return name in self.classes
 
-    def isSmartClass(self, classname):
+    def isSmartClass(self, ci):
         '''
         Check if class stores Ptr<T>* instead of T* in nativeObj field
         '''
-        return self.isWrapped(classname) and self.classes[classname].base
+        if ci.smart != None:
+            return ci.smart
 
-    def smartWrap(self, name, fullname):
+        # if parents are smart (we hope) then children are!
+        # if not we believe the class is smart if it has "create" method
+        ci.smart = False
+        if ci.base:
+            ci.smart = True
+        else:
+            for fi in ci.methods:
+                if fi.name == "create":
+                    ci.smart = True
+                    break
+
+        return ci.smart
+
+    def smartWrap(self, ci, fullname):
         '''
         Wraps fullname with Ptr<> if needed
         '''
-        if self.isSmartClass(name):
+        if self.isSmartClass(ci):
             return "Ptr<" + fullname + ">"
         return fullname
 
@@ -1563,10 +1606,15 @@ if __name__ == "__main__":
     import hdr_parser
     module = sys.argv[2]
     srcfiles = sys.argv[3:]
+    common_headers = []
+    if '--common' in srcfiles:
+        pos = srcfiles.index('--common')
+        common_headers = srcfiles[pos+1:]
+        srcfiles = srcfiles[:pos]
     logging.basicConfig(filename='%s/%s.log' % (dstdir, module), format=None, filemode='w', level=logging.INFO)
     handler = logging.StreamHandler()
     handler.setLevel(logging.WARNING)
     logging.getLogger().addHandler(handler)
     #print("Generating module '" + module + "' from headers:\n\t" + "\n\t".join(srcfiles))
     generator = JavaWrapperGenerator()
-    generator.gen(srcfiles, module, dstdir)
+    generator.gen(srcfiles, module, dstdir, common_headers)

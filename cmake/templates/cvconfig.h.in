@@ -71,12 +71,6 @@
 /* FFMpeg video library */
 #cmakedefine HAVE_FFMPEG
 
-/* ffmpeg's libswscale */
-#cmakedefine HAVE_FFMPEG_SWSCALE
-
-/* ffmpeg in Gentoo */
-#cmakedefine HAVE_GENTOO_FFMPEG
-
 /* Geospatial Data Abstraction Library */
 #cmakedefine HAVE_GDAL
 
@@ -206,3 +200,9 @@
 
 /* FP16 */
 #cmakedefine HAVE_FP16
+
+/* Library was compiled with functions instrumentation */
+#cmakedefine ENABLE_INSTRUMENTATION
+
+/* OpenVX */
+#cmakedefine HAVE_OPENVX

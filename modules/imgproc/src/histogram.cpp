@@ -42,6 +42,8 @@
 #include "precomp.hpp"
 #include "opencl_kernels_imgproc.hpp"
 
+#include "opencv2/core/openvx/ovx_defs.hpp"
+
 namespace cv
 {
 
@@ -1226,7 +1228,7 @@ public:
             return;
         }
 
-        IppStatus status = ippiHistogram_8u_C1R(src->ptr(range.start), (int)src->step, ippiSize(src->cols, range.end - range.start),
+        IppStatus status = CV_INSTRUMENT_FUN_IPP(ippiHistogram_8u_C1R, src->ptr(range.start), (int)src->step, ippiSize(src->cols, range.end - range.start),
             phist.ptr<Ipp32u>(), pSpec, pBuffer);
 
         if(pSpec)   ippFree(pSpec);
@@ -1262,6 +1264,61 @@ private:
 
 }
 
+#ifdef HAVE_OPENVX
+namespace cv
+{
+    static bool openvx_calchist(const Mat& image, OutputArray _hist, const int histSize,
+        const float* _range)
+    {
+        vx_int32 offset = (vx_int32)(_range[0]);
+        vx_uint32 range = (vx_uint32)(_range[1] - _range[0]);
+        if (float(offset) != _range[0] || float(range) != (_range[1] - _range[0]))
+            return false;
+
+        size_t total_size = image.total();
+        int rows = image.dims > 1 ? image.size[0] : 1, cols = rows ? (int)(total_size / rows) : 0;
+        if (image.dims > 2 && !(image.isContinuous() && cols > 0 && (size_t)rows*cols == total_size))
+            return false;
+
+        try
+        {
+            ivx::Context ctx = ivx::Context::create();
+#if VX_VERSION <= VX_VERSION_1_0
+            if (ctx.vendorID() == VX_ID_KHRONOS && (range % histSize))
+                return false;
+#endif
+
+            ivx::Image
+                img = ivx::Image::createFromHandle(ctx, VX_DF_IMAGE_U8,
+                    ivx::Image::createAddressing(cols, rows, 1, (vx_int32)(image.step[0])), image.data);
+
+            ivx::Distribution vxHist = ivx::Distribution::create(ctx, histSize, offset, range);
+            ivx::IVX_CHECK_STATUS(vxuHistogram(ctx, img, vxHist));
+
+            _hist.create(1, &histSize, CV_32F);
+            Mat hist = _hist.getMat(), ihist = hist;
+            ihist.flags = (ihist.flags & ~CV_MAT_TYPE_MASK) | CV_32S;
+            vxHist.copyTo(ihist);
+            ihist.convertTo(hist, CV_32F);
+
+#ifdef VX_VERSION_1_1
+            img.swapHandle();
+#endif
+        }
+        catch (ivx::RuntimeError & e)
+        {
+            VX_DbgThrow(e.what());
+        }
+        catch (ivx::WrapperError & e)
+        {
+            VX_DbgThrow(e.what());
+        }
+
+        return true;
+    }
+}
+#endif
+
 #if defined(HAVE_IPP)
 namespace cv
 {
@@ -1269,6 +1326,8 @@ static bool ipp_calchist(const Mat* images, int nimages, const int* channels,
                    InputArray _mask, OutputArray _hist, int dims, const int* histSize,
                    const float** ranges, bool uniform, bool accumulate )
 {
+    CV_INSTRUMENT_REGION_IPP()
+
     Mat mask = _mask.getMat();
 
     CV_Assert(dims > 0 && histSize);
@@ -1311,6 +1370,14 @@ void cv::calcHist( const Mat* images, int nimages, const int* channels,
                    InputArray _mask, OutputArray _hist, int dims, const int* histSize,
                    const float** ranges, bool uniform, bool accumulate )
 {
+    CV_INSTRUMENT_REGION()
+
+    CV_OVX_RUN(
+        images && histSize &&
+        nimages == 1 && images[0].type() == CV_8UC1 && dims == 1 && _mask.getMat().empty() &&
+        (!channels || channels[0] == 0) && !accumulate && uniform &&
+        ranges && ranges[0],
+        openvx_calchist(images[0], _hist, histSize[0], ranges[0]))
 
     CV_IPP_RUN(nimages == 1 && images[0].type() == CV_8UC1 && dims == 1 && channels &&
                 channels[0] == 0 && _mask.getMat().empty() && images[0].dims <= 2 &&
@@ -1602,6 +1669,8 @@ void cv::calcHist( const Mat* images, int nimages, const int* channels,
                InputArray _mask, SparseMat& hist, int dims, const int* histSize,
                const float** ranges, bool uniform, bool accumulate )
 {
+    CV_INSTRUMENT_REGION()
+
     Mat mask = _mask.getMat();
     calcHist( images, nimages, channels, mask, hist, dims, histSize,
               ranges, uniform, accumulate, false );
@@ -1614,6 +1683,8 @@ void cv::calcHist( InputArrayOfArrays images, const std::vector<int>& channels,
                    const std::vector<float>& ranges,
                    bool accumulate )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_OCL_RUN(images.total() == 1 && channels.size() == 1 && images.channels(0) == 1 &&
                channels[0] == 0 && images.isUMatVector() && mask.empty() && !accumulate &&
                histSize.size() == 1 && histSize[0] == BINS && ranges.size() == 2 &&
@@ -1941,6 +2012,8 @@ void cv::calcBackProject( const Mat* images, int nimages, const int* channels,
                           InputArray _hist, OutputArray _backProject,
                           const float** ranges, double scale, bool uniform )
 {
+    CV_INSTRUMENT_REGION()
+
     Mat hist = _hist.getMat();
     std::vector<uchar*> ptrs;
     std::vector<int> deltas;
@@ -2104,6 +2177,8 @@ void cv::calcBackProject( const Mat* images, int nimages, const int* channels,
                           const SparseMat& hist, OutputArray _backProject,
                           const float** ranges, double scale, bool uniform )
 {
+    CV_INSTRUMENT_REGION()
+
     std::vector<uchar*> ptrs;
     std::vector<int> deltas;
     std::vector<double> uniranges;
@@ -2283,6 +2358,8 @@ void cv::calcBackProject( InputArrayOfArrays images, const std::vector<int>& cha
                           const std::vector<float>& ranges,
                           double scale )
 {
+    CV_INSTRUMENT_REGION()
+
 #ifdef HAVE_OPENCL
     Size histSize = hist.size();
     bool _1D = histSize.height == 1 || histSize.width == 1;
@@ -2335,6 +2412,8 @@ void cv::calcBackProject( InputArrayOfArrays images, const std::vector<int>& cha
 
 double cv::compareHist( InputArray _H1, InputArray _H2, int method )
 {
+    CV_INSTRUMENT_REGION()
+
     Mat H1 = _H1.getMat(), H2 = _H2.getMat();
     const Mat* arrays[] = {&H1, &H2, 0};
     Mat planes[2];
@@ -2541,6 +2620,8 @@ double cv::compareHist( InputArray _H1, InputArray _H2, int method )
 
 double cv::compareHist( const SparseMat& H1, const SparseMat& H2, int method )
 {
+    CV_INSTRUMENT_REGION()
+
     double result = 0;
     int i, dims = H1.dims();
 
@@ -3683,8 +3764,47 @@ static bool ocl_equalizeHist(InputArray _src, OutputArray _dst)
 
 #endif
 
+#ifdef HAVE_OPENVX
+namespace cv
+{
+static bool openvx_equalize_hist(Mat srcMat, Mat dstMat)
+{
+    using namespace ivx;
+
+    try
+    {
+        Context context = Context::create();
+        Image srcImage = Image::createFromHandle(context, Image::matTypeToFormat(srcMat.type()),
+                                                 Image::createAddressing(srcMat), srcMat.data);
+        Image dstImage = Image::createFromHandle(context, Image::matTypeToFormat(dstMat.type()),
+                                                 Image::createAddressing(dstMat), dstMat.data);
+
+        IVX_CHECK_STATUS(vxuEqualizeHist(context, srcImage, dstImage));
+
+#ifdef VX_VERSION_1_1
+        //we should take user memory back before release
+        //(it's not done automatically according to standard)
+        srcImage.swapHandle(); dstImage.swapHandle();
+#endif
+    }
+    catch (RuntimeError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+    catch (WrapperError & e)
+    {
+        VX_DbgThrow(e.what());
+    }
+
+    return true;
+}
+}
+#endif
+
 void cv::equalizeHist( InputArray _src, OutputArray _dst )
 {
+    CV_INSTRUMENT_REGION()
+
     CV_Assert( _src.type() == CV_8UC1 );
 
     if (_src.empty())
@@ -3696,6 +3816,9 @@ void cv::equalizeHist( InputArray _src, OutputArray _dst )
     Mat src = _src.getMat();
     _dst.create( src.size(), src.type() );
     Mat dst = _dst.getMat();
+
+    CV_OVX_RUN(true,
+               openvx_equalize_hist(src, dst))
 
     Mutex histogramLockInstance;
 
